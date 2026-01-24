@@ -1,33 +1,75 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build outputs
 dist/
+build/
 .svelte-kit/
 
-# Environment
+# Environment variables
 .env
 .env.*
 !.env.example
 
-# IDE
+# IDE / Editor
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+.project
+.classpath
+.settings/
 
-# OS
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Logs
+logs/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
 
-# Test coverage
+# Test
 coverage/
+.nyc_output/
 
 # Cache
 .turbo/
+.cache/
 *.tsbuildinfo
+.eslintcache
+.prettiercache
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Package manager lock files (keep pnpm-lock.yaml)
+package-lock.json
+yarn.lock
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Storybook
+storybook-static/
+
+# Playwright
+playwright-report/
+test-results/

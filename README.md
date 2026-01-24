@@ -1,11 +1,39 @@
 # @authrim/sveltekit
 
-SvelteKit SDK for Authrim authentication.
+[![npm version](https://img.shields.io/npm/v/@authrim/sveltekit.svg)](https://www.npmjs.com/package/@authrim/sveltekit)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+Official SvelteKit SDK for [Authrim](https://authrim.com) authentication.
+
+## Features
+
+- **Passkey Authentication** - WebAuthn-based passwordless login
+- **Email Code (OTP)** - One-time password via email
+- **Social Login** - Google, GitHub, Apple, Microsoft, Facebook
+- **Svelte Stores** - Reactive authentication state
+- **Server-Side Integration** - SvelteKit hooks and load functions
+- **SSR Support** - Full server-side rendering compatibility
+- **TypeScript** - Complete type definitions
+- **UI Components** - Ready-to-use authentication components
+
+## Requirements
+
+- Node.js >= 18
+- SvelteKit >= 2.0
+- Svelte >= 4.0 or >= 5.0
+- @authrim/core >= 0.1.10
 
 ## Installation
 
 ```bash
+# pnpm (recommended)
 pnpm add @authrim/sveltekit @authrim/core
+
+# npm
+npm install @authrim/sveltekit @authrim/core
+
+# yarn
+yarn add @authrim/sveltekit @authrim/core
 ```
 
 ## Quick Start
@@ -22,21 +50,60 @@ export const auth = await createAuthrim({
 });
 ```
 
-### 2. Set Up AuthProvider
+### 2. Set Up Server Hooks
+
+```typescript
+// src/hooks.server.ts
+import { createAuthHandle } from '@authrim/sveltekit/server';
+
+export const handle = createAuthHandle();
+```
+
+### 3. Configure Type Safety
+
+```typescript
+// src/app.d.ts
+import type { ServerAuthContext } from '@authrim/sveltekit/server';
+
+declare global {
+  namespace App {
+    interface Locals {
+      auth?: ServerAuthContext;
+    }
+  }
+}
+
+export {};
+```
+
+### 4. Set Up AuthProvider
 
 ```svelte
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
   import { AuthProvider } from '@authrim/sveltekit/components';
   import { auth } from '$lib/auth';
+
+  export let data;
 </script>
 
-<AuthProvider {auth}>
+<AuthProvider
+  {auth}
+  initialSession={data.auth?.session}
+  initialUser={data.auth?.user}
+>
   <slot />
 </AuthProvider>
 ```
 
-### 3. Use Authentication
+```typescript
+// src/routes/+layout.server.ts
+import { createAuthLoad } from '@authrim/sveltekit/server';
+
+export const load = createAuthLoad();
+```
+
+### 5. Use Authentication
 
 ```svelte
 <!-- src/routes/+page.svelte -->
@@ -81,13 +148,16 @@ const auth = await createAuthrim({
 });
 ```
 
-### Namespaces
+### Authentication Namespaces
 
 #### `auth.passkey`
 
 ```typescript
 // Login with Passkey
 const result = await auth.passkey.login();
+
+// Login with Conditional UI (autofill)
+const result = await auth.passkey.login({ conditional: true });
 
 // Sign up with Passkey
 const result = await auth.passkey.signUp({ email: 'user@example.com' });
@@ -98,13 +168,16 @@ const credential = await auth.passkey.register();
 // Check support
 auth.passkey.isSupported(); // boolean
 await auth.passkey.isConditionalUIAvailable(); // Promise<boolean>
+
+// Cancel Conditional UI
+auth.passkey.cancelConditionalUI();
 ```
 
 #### `auth.emailCode`
 
 ```typescript
 // Send verification code
-await auth.emailCode.send('user@example.com');
+const result = await auth.emailCode.send('user@example.com');
 
 // Verify code
 const result = await auth.emailCode.verify('user@example.com', '123456');
@@ -112,6 +185,7 @@ const result = await auth.emailCode.verify('user@example.com', '123456');
 // Check pending verification
 auth.emailCode.hasPendingVerification('user@example.com'); // boolean
 auth.emailCode.getRemainingTime('user@example.com'); // seconds
+auth.emailCode.clearPendingVerification('user@example.com');
 ```
 
 #### `auth.social`
@@ -124,11 +198,12 @@ const result = await auth.social.loginWithPopup('google');
 await auth.social.loginWithRedirect('github');
 
 // Handle callback (after redirect)
-const result = await auth.social.handleCallback();
+if (auth.social.hasCallbackParams()) {
+  const result = await auth.social.handleCallback();
+}
 
-// Check callback params
-auth.social.hasCallbackParams(); // boolean
-auth.social.getSupportedProviders(); // ['google', 'github', 'apple', ...]
+// Get supported providers
+auth.social.getSupportedProviders(); // ['google', 'github', 'apple', 'microsoft', 'facebook']
 ```
 
 #### `auth.session`
@@ -143,7 +218,7 @@ const isValid = await auth.session.validate();
 // Get user
 const user = await auth.session.getUser();
 
-// Refresh session
+// Refresh session cache
 const session = await auth.session.refresh();
 
 // Check authentication
@@ -165,9 +240,10 @@ await auth.signUp.passkey({ email: 'user@example.com' });
 
 // Sign out
 await auth.signOut();
+await auth.signOut({ redirectUri: '/login' });
 ```
 
-### Stores
+### Svelte Stores
 
 All stores are **Readable** (not Writable) to ensure events are the source of truth.
 
@@ -179,8 +255,8 @@ const { session, user, isAuthenticated, loadingState, error } = auth.stores;
 |-------|------|-------------|
 | `session` | `Readable<Session \| null>` | Current session |
 | `user` | `Readable<User \| null>` | Current user |
-| `isAuthenticated` | `Readable<boolean>` | Authentication status |
-| `loadingState` | `Readable<AuthLoadingState>` | Loading state |
+| `isAuthenticated` | `Readable<boolean>` | Authentication status (derived from session) |
+| `loadingState` | `Readable<AuthLoadingState>` | Current loading state |
 | `error` | `Readable<AuthError \| null>` | Last error |
 
 #### `AuthLoadingState`
@@ -193,13 +269,14 @@ const { session, user, isAuthenticated, loadingState, error } = auth.stores;
 | `'refreshing'` | Session refresh in progress |
 | `'signing_out'` | Sign out in progress |
 
-**Important**: After any operation completes (success or error), `loadingState` returns to `'idle'`. Use `error !== null` to detect error conditions.
+> **Important**: After any operation completes (success or error), `loadingState` returns to `'idle'`. Use `error !== null` to detect error conditions.
 
 ### Events
 
 ```typescript
-auth.on('auth:login', ({ session, user, method }) => {
-  console.log('Logged in:', user.email);
+// Subscribe to events
+const unsubscribe = auth.on('auth:login', ({ session, user, method }) => {
+  console.log('Logged in:', user.email, 'via', method);
 });
 
 auth.on('auth:logout', ({ redirectUri }) => {
@@ -217,6 +294,16 @@ auth.on('session:changed', ({ session, user }) => {
 auth.on('session:expired', ({ reason }) => {
   console.log('Session expired:', reason);
 });
+
+// Unsubscribe
+unsubscribe();
+```
+
+### Cleanup
+
+```typescript
+// When not using AuthProvider, manually cleanup resources
+auth.destroy();
 ```
 
 ## Components
@@ -226,32 +313,45 @@ auth.on('session:expired', ({ reason }) => {
 Provides auth context to child components.
 
 ```svelte
-<AuthProvider {auth} {initialSession} {initialUser}>
+<script lang="ts">
+  import { AuthProvider } from '@authrim/sveltekit/components';
+  import { auth } from '$lib/auth';
+
+  export let data;
+</script>
+
+<AuthProvider
+  {auth}
+  initialSession={data.auth?.session}
+  initialUser={data.auth?.user}
+>
   <slot />
 </AuthProvider>
 ```
 
-**Responsibilities (strictly limited):**
-- Wire auth instance into Svelte context
-- Sync initial session from SSR
-
-It does NOT implement business logic.
+**Props:**
+- `auth` (required): Authrim client instance
+- `initialSession`: Session from SSR
+- `initialUser`: User from SSR
 
 ### `SignInButton`
 
 ```svelte
+<script lang="ts">
+  import { SignInButton } from '@authrim/sveltekit/components';
+</script>
+
+<!-- Passkey login -->
 <SignInButton
   method="passkey"
   on:success={({ detail }) => console.log(detail.user)}
   on:error={({ detail }) => console.error(detail.message)}
 >
-  Sign In
+  Sign In with Passkey
 </SignInButton>
 
-<SignInButton
-  method="social"
-  provider="google"
->
+<!-- Social login -->
+<SignInButton method="social" provider="google">
   Sign In with Google
 </SignInButton>
 ```
@@ -259,9 +359,14 @@ It does NOT implement business logic.
 ### `SignOutButton`
 
 ```svelte
+<script lang="ts">
+  import { SignOutButton } from '@authrim/sveltekit/components';
+</script>
+
 <SignOutButton
   redirectUri="/login"
   on:success={() => console.log('Signed out')}
+  on:error={({ detail }) => console.error(detail)}
 >
   Sign Out
 </SignOutButton>
@@ -270,6 +375,10 @@ It does NOT implement business logic.
 ### `UserProfile`
 
 ```svelte
+<script lang="ts">
+  import { UserProfile } from '@authrim/sveltekit/components';
+</script>
+
 <UserProfile showAvatar showEmail>
   <svelte:fragment slot="avatar" let:user>
     <img src={user.picture} alt={user.name} />
@@ -280,7 +389,11 @@ It does NOT implement business logic.
 ### `ProtectedRoute`
 
 ```svelte
-<ProtectedRoute redirectTo="/login">
+<script lang="ts">
+  import { ProtectedRoute } from '@authrim/sveltekit/components';
+</script>
+
+<ProtectedRoute redirectTo="/login" includeReturnPath>
   <Dashboard />
 
   <svelte:fragment slot="loading">
@@ -288,23 +401,27 @@ It does NOT implement business logic.
   </svelte:fragment>
 
   <svelte:fragment slot="unauthenticated">
-    <p>Please sign in.</p>
+    <p>Please sign in to continue.</p>
   </svelte:fragment>
 </ProtectedRoute>
 ```
 
 ## Server-Side Integration
 
-### Hooks
+### Handle Hook
 
 ```typescript
 // src/hooks.server.ts
 import { createAuthHandle } from '@authrim/sveltekit/server';
 
-export const handle = createAuthHandle();
+export const handle = createAuthHandle({
+  cookieName: 'authrim_session',
+  secure: true,
+  sameSite: 'lax',
+});
 ```
 
-### Protected Routes
+### Protected Routes (Server)
 
 ```typescript
 // src/routes/dashboard/+page.server.ts
@@ -312,6 +429,7 @@ import { requireAuth } from '@authrim/sveltekit/server';
 
 export const load = requireAuth({
   loginUrl: '/login',
+  redirectParam: 'redirectTo',
 });
 ```
 
@@ -324,22 +442,88 @@ import { createAuthLoad } from '@authrim/sveltekit/server';
 export const load = createAuthLoad();
 ```
 
-## Direct Auth
+### Helper Functions
 
-Direct Auth is a low-level imperative API. When Flow Engine is introduced, Flow will be recommended for most use cases.
+```typescript
+import {
+  isAuthenticated,
+  getUser,
+  getSession,
+  getAuthFromEvent
+} from '@authrim/sveltekit/server';
 
-**Use Direct Auth when:**
-- You need fine-grained control over the authentication flow
-- You're building custom UI components
-- Flow Engine is not suitable for your use case
+// In +page.server.ts or hooks
+export const load = async ({ locals }) => {
+  if (isAuthenticated(locals)) {
+    const user = getUser(locals);
+    const session = getSession(locals);
+    // ...
+  }
+};
+
+// In handle hook
+const authContext = getAuthFromEvent(event);
+```
+
+## Package Exports
+
+```typescript
+// Main client
+import { createAuthrim, getAuthContext, setAuthContext } from '@authrim/sveltekit';
+
+// Server utilities
+import {
+  createAuthHandle,
+  requireAuth,
+  createAuthLoad,
+  isAuthenticated,
+  getUser,
+  getSession
+} from '@authrim/sveltekit/server';
+
+// Components
+import {
+  AuthProvider,
+  SignInButton,
+  SignOutButton,
+  UserProfile,
+  ProtectedRoute
+} from '@authrim/sveltekit/components';
+
+// Stores (for advanced use)
+import { createAuthStores } from '@authrim/sveltekit/stores';
+```
 
 ## Design Principles
 
-1. **Stores are observation-only**: All stores are `Readable`, not `Writable`
-2. **Events are source of truth**: Store updates are projections of events
-3. **Components are dumb wrappers**: UI components delegate behavior to props/events
-4. **Server abstraction**: Cookie handling is abstracted via `ServerSessionManager`
+1. **Stores are observation-only**: All stores are `Readable`, not `Writable`. This ensures that the event system is the single source of truth.
+
+2. **Events are source of truth**: Store updates are projections of events. This makes the data flow predictable and debuggable.
+
+3. **Components are thin wrappers**: UI components delegate behavior to props/events. They don't implement business logic.
+
+4. **SSR-first**: Full server-side rendering support with proper hydration handling.
+
+5. **Type safety**: Complete TypeScript support with strict typing.
+
+## Security Considerations
+
+- **PKCE**: All OAuth flows use PKCE (Proof Key for Code Exchange)
+- **Secure Storage**: Session tokens are stored securely with configurable storage options
+- **CSRF Protection**: State parameter validation for OAuth flows
+- **HttpOnly Cookies**: Server-side session cookies are HttpOnly by default
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
+
+## Links
+
+- [Documentation](https://docs.authrim.com)
+- [GitHub](https://github.com/authrim/js-sveltekit)
+- [npm](https://www.npmjs.com/package/@authrim/sveltekit)
+- [Authrim](https://authrim.com)
