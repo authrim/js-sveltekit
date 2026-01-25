@@ -1,0 +1,279 @@
+/**
+ * Authrim UI Theme
+ *
+ * Design Direction: Refined Brutalist
+ * - Sharp geometric forms with subtle softening
+ * - Monochromatic base with electric accent colors
+ * - Bold typography with precise spacing
+ * - Micro-interactions that feel intentional
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root,
+[data-theme="light"] {
+  /* === Typography === */
+  --authrim-font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --authrim-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  /* === Color Palette === */
+  /* Primary - Electric Indigo */
+  --authrim-color-primary: #4f46e5;
+  --authrim-color-primary-hover: #4338ca;
+  --authrim-color-primary-active: #3730a3;
+  --authrim-color-primary-subtle: #eef2ff;
+  --authrim-color-primary-text: #ffffff;
+
+  /* Accent - Vivid Coral */
+  --authrim-color-accent: #f43f5e;
+  --authrim-color-accent-hover: #e11d48;
+  --authrim-color-accent-subtle: #fff1f2;
+
+  /* Success - Emerald */
+  --authrim-color-success: #059669;
+  --authrim-color-success-hover: #047857;
+  --authrim-color-success-subtle: #ecfdf5;
+  --authrim-color-success-text: #065f46;
+
+  /* Warning - Amber */
+  --authrim-color-warning: #d97706;
+  --authrim-color-warning-hover: #b45309;
+  --authrim-color-warning-subtle: #fffbeb;
+  --authrim-color-warning-text: #92400e;
+
+  /* Error - Rose */
+  --authrim-color-error: #e11d48;
+  --authrim-color-error-hover: #be123c;
+  --authrim-color-error-subtle: #fff1f2;
+  --authrim-color-error-text: #9f1239;
+
+  /* Info - Cyan */
+  --authrim-color-info: #0891b2;
+  --authrim-color-info-hover: #0e7490;
+  --authrim-color-info-subtle: #ecfeff;
+  --authrim-color-info-text: #155e75;
+
+  /* === Neutrals === */
+  --authrim-color-bg: #ffffff;
+  --authrim-color-bg-elevated: #fafafa;
+  --authrim-color-bg-subtle: #f4f4f5;
+  --authrim-color-bg-muted: #e4e4e7;
+  --authrim-color-bg-inverse: #18181b;
+
+  --authrim-color-text: #09090b;
+  --authrim-color-text-secondary: #52525b;
+  --authrim-color-text-muted: #a1a1aa;
+  --authrim-color-text-inverse: #fafafa;
+
+  --authrim-color-border: #e4e4e7;
+  --authrim-color-border-subtle: #f4f4f5;
+  --authrim-color-border-strong: #d4d4d8;
+  --authrim-color-border-focus: var(--authrim-color-primary);
+
+  /* === Shadows === */
+  --authrim-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --authrim-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --authrim-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --authrim-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+  --authrim-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.12), 0 8px 16px rgba(0, 0, 0, 0.06);
+  --authrim-shadow-focus: 0 0 0 3px var(--authrim-color-primary-subtle);
+  --authrim-shadow-focus-error: 0 0 0 3px var(--authrim-color-error-subtle);
+
+  /* === Radii === */
+  --authrim-radius-sm: 6px;
+  --authrim-radius-md: 10px;
+  --authrim-radius-lg: 14px;
+  --authrim-radius-xl: 20px;
+  --authrim-radius-full: 9999px;
+
+  /* === Spacing === */
+  --authrim-space-0: 0;
+  --authrim-space-1: 4px;
+  --authrim-space-2: 8px;
+  --authrim-space-3: 12px;
+  --authrim-space-4: 16px;
+  --authrim-space-5: 20px;
+  --authrim-space-6: 24px;
+  --authrim-space-8: 32px;
+  --authrim-space-10: 40px;
+  --authrim-space-12: 48px;
+  --authrim-space-16: 64px;
+
+  /* === Typography Scale === */
+  --authrim-text-xs: 0.75rem;
+  --authrim-text-sm: 0.875rem;
+  --authrim-text-base: 1rem;
+  --authrim-text-lg: 1.125rem;
+  --authrim-text-xl: 1.25rem;
+  --authrim-text-2xl: 1.5rem;
+  --authrim-text-3xl: 1.875rem;
+
+  --authrim-leading-tight: 1.25;
+  --authrim-leading-snug: 1.375;
+  --authrim-leading-normal: 1.5;
+  --authrim-leading-relaxed: 1.625;
+
+  --authrim-tracking-tight: -0.025em;
+  --authrim-tracking-normal: 0;
+  --authrim-tracking-wide: 0.025em;
+
+  /* === Transitions === */
+  --authrim-duration-instant: 50ms;
+  --authrim-duration-fast: 100ms;
+  --authrim-duration-normal: 200ms;
+  --authrim-duration-slow: 300ms;
+  --authrim-duration-slower: 500ms;
+
+  --authrim-ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --authrim-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --authrim-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --authrim-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* === Z-Index === */
+  --authrim-z-base: 0;
+  --authrim-z-dropdown: 50;
+  --authrim-z-sticky: 100;
+  --authrim-z-modal: 200;
+  --authrim-z-popover: 300;
+  --authrim-z-tooltip: 400;
+}
+
+[data-theme="dark"] {
+  /* === Color Palette === */
+  /* Primary - Electric Indigo (adjusted for dark) */
+  --authrim-color-primary: #818cf8;
+  --authrim-color-primary-hover: #a5b4fc;
+  --authrim-color-primary-active: #6366f1;
+  --authrim-color-primary-subtle: rgba(129, 140, 248, 0.15);
+  --authrim-color-primary-text: #09090b;
+
+  /* Accent - Vivid Coral */
+  --authrim-color-accent: #fb7185;
+  --authrim-color-accent-hover: #fda4af;
+  --authrim-color-accent-subtle: rgba(251, 113, 133, 0.15);
+
+  /* Success */
+  --authrim-color-success: #34d399;
+  --authrim-color-success-hover: #6ee7b7;
+  --authrim-color-success-subtle: rgba(52, 211, 153, 0.15);
+  --authrim-color-success-text: #6ee7b7;
+
+  /* Warning */
+  --authrim-color-warning: #fbbf24;
+  --authrim-color-warning-hover: #fcd34d;
+  --authrim-color-warning-subtle: rgba(251, 191, 36, 0.15);
+  --authrim-color-warning-text: #fcd34d;
+
+  /* Error */
+  --authrim-color-error: #fb7185;
+  --authrim-color-error-hover: #fda4af;
+  --authrim-color-error-subtle: rgba(251, 113, 133, 0.15);
+  --authrim-color-error-text: #fda4af;
+
+  /* Info */
+  --authrim-color-info: #22d3ee;
+  --authrim-color-info-hover: #67e8f9;
+  --authrim-color-info-subtle: rgba(34, 211, 238, 0.15);
+  --authrim-color-info-text: #67e8f9;
+
+  /* === Neutrals === */
+  --authrim-color-bg: #09090b;
+  --authrim-color-bg-elevated: #18181b;
+  --authrim-color-bg-subtle: #27272a;
+  --authrim-color-bg-muted: #3f3f46;
+  --authrim-color-bg-inverse: #fafafa;
+
+  --authrim-color-text: #fafafa;
+  --authrim-color-text-secondary: #a1a1aa;
+  --authrim-color-text-muted: #71717a;
+  --authrim-color-text-inverse: #09090b;
+
+  --authrim-color-border: #27272a;
+  --authrim-color-border-subtle: #18181b;
+  --authrim-color-border-strong: #3f3f46;
+  --authrim-color-border-focus: var(--authrim-color-primary);
+
+  /* === Shadows (adjusted for dark) === */
+  --authrim-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --authrim-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --authrim-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --authrim-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2);
+  --authrim-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.5), 0 8px 16px rgba(0, 0, 0, 0.3);
+  --authrim-shadow-focus: 0 0 0 3px var(--authrim-color-primary-subtle);
+  --authrim-shadow-focus-error: 0 0 0 3px var(--authrim-color-error-subtle);
+}
+
+/*
+ * System preference detection
+ * Applies dark theme when:
+ * 1. User's system prefers dark mode AND
+ * 2. No explicit data-theme="light" is set
+ *
+ * Note: [data-theme="dark"] selector (above) handles explicit dark theme selection.
+ * This media query handles automatic detection when no theme is explicitly set.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    /* Inherits dark theme variables - uses same values as [data-theme="dark"] */
+    /* Primary - Electric Indigo (adjusted for dark) */
+    --authrim-color-primary: #818cf8;
+    --authrim-color-primary-hover: #a5b4fc;
+    --authrim-color-primary-active: #6366f1;
+    --authrim-color-primary-subtle: rgba(129, 140, 248, 0.15);
+    --authrim-color-primary-text: #09090b;
+
+    /* Accent - Vivid Coral */
+    --authrim-color-accent: #fb7185;
+    --authrim-color-accent-hover: #fda4af;
+    --authrim-color-accent-subtle: rgba(251, 113, 133, 0.15);
+
+    /* Success */
+    --authrim-color-success: #34d399;
+    --authrim-color-success-hover: #6ee7b7;
+    --authrim-color-success-subtle: rgba(52, 211, 153, 0.15);
+    --authrim-color-success-text: #6ee7b7;
+
+    /* Warning */
+    --authrim-color-warning: #fbbf24;
+    --authrim-color-warning-hover: #fcd34d;
+    --authrim-color-warning-subtle: rgba(251, 191, 36, 0.15);
+    --authrim-color-warning-text: #fcd34d;
+
+    /* Error */
+    --authrim-color-error: #fb7185;
+    --authrim-color-error-hover: #fda4af;
+    --authrim-color-error-subtle: rgba(251, 113, 133, 0.15);
+    --authrim-color-error-text: #fda4af;
+
+    /* Info */
+    --authrim-color-info: #22d3ee;
+    --authrim-color-info-hover: #67e8f9;
+    --authrim-color-info-subtle: rgba(34, 211, 238, 0.15);
+    --authrim-color-info-text: #67e8f9;
+
+    /* Neutrals */
+    --authrim-color-bg: #09090b;
+    --authrim-color-bg-elevated: #18181b;
+    --authrim-color-bg-subtle: #27272a;
+    --authrim-color-bg-muted: #3f3f46;
+    --authrim-color-bg-inverse: #fafafa;
+
+    --authrim-color-text: #fafafa;
+    --authrim-color-text-secondary: #a1a1aa;
+    --authrim-color-text-muted: #71717a;
+    --authrim-color-text-inverse: #09090b;
+
+    --authrim-color-border: #27272a;
+    --authrim-color-border-subtle: #18181b;
+    --authrim-color-border-strong: #3f3f46;
+
+    /* Shadows (adjusted for dark) */
+    --authrim-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --authrim-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --authrim-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
+    --authrim-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2);
+    --authrim-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.5), 0 8px 16px rgba(0, 0, 0, 0.3);
+    --authrim-shadow-focus: 0 0 0 3px var(--authrim-color-primary-subtle);
+    --authrim-shadow-focus-error: 0 0 0 3px var(--authrim-color-error-subtle);
+  }
+}

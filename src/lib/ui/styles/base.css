@@ -1,0 +1,168 @@
+/**
+ * Authrim UI Base Styles
+ * Global resets and utility classes
+ */
+
+/* === Base Reset === */
+.authrim-ui,
+.authrim-ui *,
+.authrim-ui *::before,
+.authrim-ui *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.authrim-ui {
+  font-family: var(--authrim-font-sans);
+  font-size: var(--authrim-text-base);
+  line-height: var(--authrim-leading-normal);
+  color: var(--authrim-color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* === Focus Management === */
+.authrim-ui :focus {
+  outline: none;
+}
+
+.authrim-ui :focus-visible {
+  outline: none;
+  box-shadow: var(--authrim-shadow-focus);
+}
+
+/* === Screen Reader Only === */
+.authrim-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* === Animations === */
+@keyframes authrim-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes authrim-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes authrim-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes authrim-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authrim-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authrim-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes authrim-shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes authrim-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes authrim-bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes authrim-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--authrim-color-primary-subtle);
+  }
+  50% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes authrim-digit-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* === Animation Utilities === */
+.authrim-animate-spin {
+  animation: authrim-spin 1s linear infinite;
+}
+
+.authrim-animate-pulse {
+  animation: authrim-pulse 2s ease-in-out infinite;
+}
+
+.authrim-animate-fade-in {
+  animation: authrim-fade-in var(--authrim-duration-normal) var(--authrim-ease-out);
+}
+
+.authrim-animate-fade-up {
+  animation: authrim-fade-up var(--authrim-duration-normal) var(--authrim-ease-out);
+}
+
+.authrim-animate-scale-in {
+  animation: authrim-scale-in var(--authrim-duration-normal) var(--authrim-ease-bounce);
+}
+
+.authrim-animate-shake {
+  animation: authrim-shake 0.5s ease-in-out;
+}
+
+/* === Reduced Motion === */
+@media (prefers-reduced-motion: reduce) {
+  .authrim-ui *,
+  .authrim-ui *::before,
+  .authrim-ui *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
