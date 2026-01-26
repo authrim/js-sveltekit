@@ -56,6 +56,8 @@ export interface AuthSessionData {
   session: Session;
   user: User;
   nextAction?: NextAction;
+  /** Validated redirect path from social login state (relative path only) */
+  redirectTo?: string;
 }
 
 // =============================================================================

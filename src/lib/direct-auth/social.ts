@@ -23,6 +23,100 @@ const STORAGE_KEYS = {
   REDIRECT_URI: 'authrim:direct:social:redirect_uri',
 };
 
+// =============================================================================
+// Redirect Path Validation & State Encoding
+// =============================================================================
+
+/**
+ * Validates that a path is a safe relative path (no open redirect).
+ * Only allows paths starting with '/' and blocks protocol schemes.
+ */
+function isValidRelativePath(path: string): boolean {
+  if (!path || typeof path !== 'string') return false;
+  // Block protocol schemes (e.g., https:, javascript:, data:)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return false;
+  // Block protocol-relative URLs (e.g., //evil.com)
+  if (path.startsWith('//')) return false;
+  // Block backslashes (some browsers normalize \/ to //)
+  if (path.includes('\\')) return false;
+  // Must start with '/' (relative to origin)
+  if (!path.startsWith('/')) return false;
+  return true;
+}
+
+/**
+ * Base64url encode (URL-safe base64 without padding)
+ */
+function base64urlEncode(bytes: Uint8Array): string {
+  // Use reduce instead of spread to avoid stack overflow with large arrays
+  const binary = bytes.reduce((str, byte) => str + String.fromCharCode(byte), '');
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Base64url decode (URL-safe base64)
+ */
+function base64urlDecode(encoded: string): Uint8Array {
+  // Restore standard base64 characters
+  let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  // Add padding if needed
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+interface StateData {
+  nonce: string;
+  redirectTo?: string;
+}
+
+/**
+ * Encode state data (nonce + optional redirectTo) into a string.
+ * Uses base64url encoding with TextEncoder for Unicode support.
+ */
+function encodeStateData(nonce: string, redirectTo?: string): string {
+  // If no redirectTo, return plain nonce for backwards compatibility
+  if (!redirectTo) return nonce;
+
+  const data: StateData = { nonce, redirectTo };
+  const json = JSON.stringify(data);
+  const bytes = new TextEncoder().encode(json);
+  return base64urlEncode(bytes);
+}
+
+/**
+ * Decode state data from encoded string.
+ * Supports both legacy plain nonce and new JSON format.
+ */
+function decodeStateData(encoded: string): StateData | null {
+  if (!encoded) return null;
+
+  // Legacy format: plain hex nonce (64 chars of hex)
+  if (/^[0-9a-f]+$/i.test(encoded)) {
+    return { nonce: encoded };
+  }
+
+  // New format: base64url encoded JSON
+  try {
+    const bytes = base64urlDecode(encoded);
+    const json = new TextDecoder().decode(bytes);
+    const data = JSON.parse(json) as StateData;
+    // Validate structure
+    if (typeof data.nonce !== 'string') return null;
+    if (data.redirectTo !== undefined && typeof data.redirectTo !== 'string') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export interface SocialAuthOptions {
   issuer: string;
   clientId: string;
@@ -89,9 +183,19 @@ export class SocialAuthImpl implements SocialAuth {
     }
   }
 
-  async loginWithPopup(provider: SocialProvider, options?: SocialLoginOptions): Promise<AuthResult> {
+  async loginWithPopup(
+    provider: SocialProvider,
+    options?: SocialLoginOptions & { redirectTo?: string }
+  ): Promise<AuthResult> {
     const { codeVerifier, codeChallenge } = await this.pkce.generatePKCE();
-    const state = await this.generateState();
+    const nonce = await this.generateState();
+
+    // Validate redirectTo and encode into state
+    const validatedRedirectTo =
+      options?.redirectTo && isValidRelativePath(options.redirectTo)
+        ? options.redirectTo
+        : undefined;
+    const state = encodeStateData(nonce, validatedRedirectTo);
 
     const redirectUri = options?.redirectUri || this.getPopupCallbackUrl();
     const authUrl = this.buildAuthorizationUrl(provider, {
@@ -149,9 +253,19 @@ export class SocialAuthImpl implements SocialAuth {
     });
   }
 
-  async loginWithRedirect(provider: SocialProvider, options?: SocialLoginOptions): Promise<void> {
+  async loginWithRedirect(
+    provider: SocialProvider,
+    options?: SocialLoginOptions & { redirectTo?: string }
+  ): Promise<void> {
     const { codeVerifier, codeChallenge } = await this.pkce.generatePKCE();
-    const state = await this.generateState();
+    const nonce = await this.generateState();
+
+    // Validate redirectTo and encode into state
+    const validatedRedirectTo =
+      options?.redirectTo && isValidRelativePath(options.redirectTo)
+        ? options.redirectTo
+        : undefined;
+    const state = encodeStateData(nonce, validatedRedirectTo);
 
     const redirectUri = options?.redirectUri || window.location.href.split('?')[0];
 
@@ -236,6 +350,13 @@ export class SocialAuthImpl implements SocialAuth {
     try {
       const { session, user } = await this.exchangeToken(code, codeVerifier);
 
+      // Extract redirectTo from state (after validation)
+      const stateData = storedState ? decodeStateData(storedState) : null;
+      const redirectTo =
+        stateData?.redirectTo && isValidRelativePath(stateData.redirectTo)
+          ? stateData.redirectTo
+          : undefined;
+
       await this.clearStoredState();
       this.clearUrlParams();
 
@@ -243,20 +364,21 @@ export class SocialAuthImpl implements SocialAuth {
         success: true,
         session,
         user,
-      };
-    } catch (error) {
+        redirectTo,
+      } as AuthResult & { redirectTo?: string };
+    } catch (err) {
       await this.clearStoredState();
 
-      if (error instanceof AuthrimError) {
+      if (err instanceof AuthrimError) {
         return {
           success: false,
           error: {
-            error: error.code,
-            error_description: error.message,
-            code: getAuthrimCode(error.code, 'AR004000'),
+            error: err.code,
+            error_description: err.message,
+            code: getAuthrimCode(err.code, 'AR004000'),
             meta: {
-              retryable: error.meta.retryable,
-              severity: mapSeverity(error.meta.severity),
+              retryable: err.meta.retryable,
+              severity: mapSeverity(err.meta.severity),
             },
           },
         };
@@ -266,7 +388,7 @@ export class SocialAuthImpl implements SocialAuth {
         success: false,
         error: {
           error: 'token_error',
-          error_description: error instanceof Error ? error.message : 'Failed to exchange token',
+          error_description: err instanceof Error ? err.message : 'Failed to exchange token',
           code: 'AR004007',
           meta: { retryable: false, severity: 'error' },
         },
@@ -434,21 +556,29 @@ export class SocialAuthImpl implements SocialAuth {
     try {
       const { session, user } = await this.exchangeToken(data.code, codeVerifier);
 
+      // Extract redirectTo from state (after validation)
+      const stateData = storedState ? decodeStateData(storedState) : null;
+      const redirectTo =
+        stateData?.redirectTo && isValidRelativePath(stateData.redirectTo)
+          ? stateData.redirectTo
+          : undefined;
+
       await this.clearStoredState();
 
       resolve({
         success: true,
         session,
         user,
-      });
-    } catch (error) {
+        redirectTo,
+      } as AuthResult & { redirectTo?: string });
+    } catch (err) {
       await this.clearStoredState();
 
       resolve({
         success: false,
         error: {
           error: 'token_error',
-          error_description: error instanceof Error ? error.message : 'Failed to exchange token',
+          error_description: err instanceof Error ? err.message : 'Failed to exchange token',
           code: 'AR004007',
           meta: { retryable: false, severity: 'error' },
         },

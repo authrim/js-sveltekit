@@ -59,12 +59,15 @@ function mapSeverity(severity?: string): 'info' | 'warn' | 'error' | 'critical' 
   }
 }
 
-export function authResultToResponse(result: AuthResult): AuthResponse<AuthSessionData> {
+export function authResultToResponse(
+  result: AuthResult & { redirectTo?: string }
+): AuthResponse<AuthSessionData> {
   if (result.success && result.session && result.user) {
     return success({
       session: result.session,
       user: result.user,
       nextAction: result.nextAction,
+      redirectTo: result.redirectTo,
     });
   }
 
