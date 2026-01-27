@@ -36,6 +36,8 @@ npm install @authrim/sveltekit @authrim/core
 yarn add @authrim/sveltekit @authrim/core
 ```
 
+> **Note**: `@authrim/core` is a peer dependency that provides the underlying authentication logic. You need to install it alongside `@authrim/sveltekit`, but you don't need to import from it directly—all necessary types and functions are re-exported from `@authrim/sveltekit`.
+
 ## Quick Start
 
 ### 1. Create Auth Client
