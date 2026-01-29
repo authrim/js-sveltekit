@@ -38,6 +38,7 @@ export type {
   Size,
   Variant,
   EmailCodeStep,
+  AlertVariant,
   PasskeyItemDisplay,
   SessionItemDisplay,
   LinkedAccountDisplay,
@@ -47,7 +48,16 @@ export type {
   PasskeyDeleteEvent,
   SessionRevokeEvent,
   AccountUnlinkEvent,
-} from './types.js';
+  ConsentAllowEvent,
+  OrgChangeEvent,
+  DeviceCodeEvent,
+  DeviceCodeChangeEvent,
+  CIBAApproveEvent,
+  CIBADenyEvent,
+  ReauthEvent,
+  ReauthSocialEvent,
+  LanguageChangeEvent,
+} from "./types.js";
 
 // Context
 export {
@@ -58,22 +68,59 @@ export {
   getThemeContext,
   hasThemeContext,
   loadSavedTheme,
-} from './context.js';
+} from "./context.js";
 
 // Shared Components
-export { Button, Input, Card, Spinner, Badge } from './shared/index.js';
+export {
+  Button,
+  Input,
+  Card,
+  Spinner,
+  Badge,
+  Alert,
+  Dialog,
+  LanguageSwitcher,
+  CountdownTimer,
+} from "./shared/index.js";
 
 // Helper Components
-export { AuthLoading, AuthError, OTPInput, ResendCodeButton } from './helpers/index.js';
+export {
+  AuthLoading,
+  AuthError,
+  OTPInput,
+  ResendCodeButton,
+} from "./helpers/index.js";
 
 // Form Components
-export { EmailCodeForm, PasskeyConditionalInput, SocialLoginButtons } from './forms/index.js';
+export {
+  EmailCodeForm,
+  PasskeyConditionalInput,
+  SocialLoginButtons,
+  ConsentScopesList,
+  OrgSelector,
+  ClientInfo,
+  UserCodeInput,
+  QRCodeDisplay,
+  CIBARequestCard,
+} from "./forms/index.js";
 
 // Passkey Components
-export { PasskeyList, PasskeyRegisterButton, PasskeyDeleteButton } from './passkey/index.js';
+export {
+  PasskeyList,
+  PasskeyRegisterButton,
+  PasskeyDeleteButton,
+} from "./passkey/index.js";
 
 // Session Components
-export { SessionList, SessionRevokeButton, SessionExpiryIndicator } from './session/index.js';
+export {
+  SessionList,
+  SessionRevokeButton,
+  SessionExpiryIndicator,
+} from "./session/index.js";
 
 // Account Components
-export { LinkedAccountsList, LinkAccountButton, UnlinkAccountButton } from './account/index.js';
+export {
+  LinkedAccountsList,
+  LinkAccountButton,
+  UnlinkAccountButton,
+} from "./account/index.js";

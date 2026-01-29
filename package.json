@@ -1,6 +1,6 @@
 {
   "name": "@authrim/sveltekit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SvelteKit SDK for Authrim authentication",
   "type": "module",
   "svelte": "./dist/index.js",

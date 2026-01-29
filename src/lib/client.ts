@@ -10,7 +10,7 @@ import type {
   EmailCodeVerifyOptions,
   SocialLoginOptions,
   SocialProvider,
-} from '@authrim/core';
+} from "@authrim/core";
 
 import type {
   AuthrimConfig,
@@ -22,39 +22,64 @@ import type {
   EmailCodeNamespace,
   SocialNamespace,
   SessionNamespace,
+  ConsentNamespace,
+  DeviceFlowNamespace,
+  CIBANamespace,
+  LoginChallengeNamespace,
   SignOutOptions,
   AuthResponse,
   AuthSessionData,
   AuthStores,
-} from './types.js';
+} from "./types.js";
 
-import { authResultToResponse, wrapWithAuthResponse, success } from './utils/response.js';
+import {
+  authResultToResponse,
+  wrapWithAuthResponse,
+  success,
+} from "./utils/response.js";
 
-import { PasskeyAuthImpl } from './direct-auth/passkey.js';
-import { EmailCodeAuthImpl } from './direct-auth/email-code.js';
-import { SocialAuthImpl } from './direct-auth/social.js';
-import { SessionAuthImpl } from './direct-auth/session.js';
+import { PasskeyAuthImpl } from "./direct-auth/passkey.js";
+import { EmailCodeAuthImpl } from "./direct-auth/email-code.js";
+import { SocialAuthImpl } from "./direct-auth/social.js";
+import { SessionAuthImpl } from "./direct-auth/session.js";
+import { ConsentApiImpl } from "./direct-auth/consent.js";
+import { DeviceFlowApiImpl } from "./direct-auth/device-flow.js";
+import { CIBAApiImpl } from "./direct-auth/ciba.js";
+import { LoginChallengeApiImpl } from "./direct-auth/login-challenge.js";
 
-import { BrowserHttpClient } from './providers/http.js';
-import { BrowserCryptoProvider } from './providers/crypto.js';
-import { createBrowserStorage, type BrowserStorageOptions } from './providers/storage.js';
+import { BrowserHttpClient } from "./providers/http.js";
+import { BrowserCryptoProvider } from "./providers/crypto.js";
+import {
+  createBrowserStorage,
+  type BrowserStorageOptions,
+} from "./providers/storage.js";
 
-import { createAuthStores, toAuthError, type InternalAuthStores } from './stores/auth.js';
+import {
+  createAuthStores,
+  toAuthError,
+  type InternalAuthStores,
+} from "./stores/auth.js";
 
 /**
  * Event emitter for auth events
  */
 class AuthEventEmitter {
-  private handlers: Map<AuthEventName, Set<AuthEventHandler<AuthEventName>>> = new Map();
+  private handlers: Map<AuthEventName, Set<AuthEventHandler<AuthEventName>>> =
+    new Map();
 
-  on<E extends AuthEventName>(event: E, handler: AuthEventHandler<E>): () => void {
+  on<E extends AuthEventName>(
+    event: E,
+    handler: AuthEventHandler<E>,
+  ): () => void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
     this.handlers.get(event)!.add(handler as AuthEventHandler<AuthEventName>);
 
     return () => {
-      this.handlers.get(event)?.delete(handler as AuthEventHandler<AuthEventName>);
+      this.handlers
+        .get(event)
+        ?.delete(handler as AuthEventHandler<AuthEventName>);
     };
   }
 
@@ -91,7 +116,9 @@ class AuthEventEmitter {
  * const { session, user, isAuthenticated } = auth.stores;
  * ```
  */
-export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClient> {
+export async function createAuthrim(
+  config: AuthrimConfig,
+): Promise<AuthrimClient> {
   // Initialize providers
   const http = new BrowserHttpClient();
   const crypto = new BrowserCryptoProvider();
@@ -145,28 +172,33 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
   // Store updater helpers (イベント→Store の projection)
   // ==========================================================================
 
-  function updateStoresOnLogin(session: AuthSessionData['session'], user: AuthSessionData['user']) {
+  function updateStoresOnLogin(
+    session: AuthSessionData["session"],
+    user: AuthSessionData["user"],
+  ) {
     internalStores._session.set(session);
     internalStores._user.set(user);
-    internalStores._loadingState.set('idle');
+    internalStores._loadingState.set("idle");
     internalStores._error.set(null);
   }
 
   function updateStoresOnLogout() {
     internalStores._session.set(null);
     internalStores._user.set(null);
-    internalStores._loadingState.set('idle');
+    internalStores._loadingState.set("idle");
     internalStores._error.set(null);
   }
 
-  function updateStoresOnError(error: AuthResponse<never>['error']) {
+  function updateStoresOnError(error: AuthResponse<never>["error"]) {
     if (error) {
       internalStores._error.set(toAuthError(error));
     }
-    internalStores._loadingState.set('idle');
+    internalStores._loadingState.set("idle");
   }
 
-  function setLoadingState(state: 'authenticating' | 'refreshing' | 'signing_out') {
+  function setLoadingState(
+    state: "authenticating" | "refreshing" | "signing_out",
+  ) {
     internalStores._loadingState.set(state);
   }
 
@@ -174,19 +206,19 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
   // Event→Store projection
   // ==========================================================================
 
-  emitter.on('auth:login', (payload) => {
+  emitter.on("auth:login", (payload) => {
     updateStoresOnLogin(payload.session, payload.user);
   });
 
-  emitter.on('auth:logout', () => {
+  emitter.on("auth:logout", () => {
     updateStoresOnLogout();
   });
 
-  emitter.on('auth:error', (payload) => {
+  emitter.on("auth:error", (payload) => {
     updateStoresOnError(payload.error);
   });
 
-  emitter.on('session:changed', (payload) => {
+  emitter.on("session:changed", (payload) => {
     internalStores._session.set(payload.session);
     internalStores._user.set(payload.user);
   });
@@ -197,39 +229,42 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
 
   const passkey: PasskeyNamespace = {
     async login(options?: PasskeyLoginOptions) {
-      setLoadingState('authenticating');
+      setLoadingState("authenticating");
       const result = await passkeyImpl.login(options);
       const response = authResultToResponse(result);
       if (response.data) {
-        emitter.emit('auth:login', {
+        emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
-          method: 'passkey',
+          method: "passkey",
         });
       } else if (response.error) {
-        emitter.emit('auth:error', { error: response.error });
+        emitter.emit("auth:error", { error: response.error });
       }
       return response;
     },
 
     async signUp(options: PasskeySignUpOptions) {
-      setLoadingState('authenticating');
+      setLoadingState("authenticating");
       const result = await passkeyImpl.signUp(options);
       const response = authResultToResponse(result);
       if (response.data) {
-        emitter.emit('auth:login', {
+        emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
-          method: 'passkey',
+          method: "passkey",
         });
       } else if (response.error) {
-        emitter.emit('auth:error', { error: response.error });
+        emitter.emit("auth:error", { error: response.error });
       }
       return response;
     },
 
     async register(options?: PasskeyRegisterOptions) {
-      return wrapWithAuthResponse(() => passkeyImpl.register(options), 'AR003000');
+      return wrapWithAuthResponse(
+        () => passkeyImpl.register(options),
+        "AR003000",
+      );
     },
 
     isSupported() {
@@ -251,21 +286,28 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
 
   const emailCode: EmailCodeNamespace = {
     async send(email: string, options?: EmailCodeSendOptions) {
-      return wrapWithAuthResponse(async () => emailCodeImpl.send(email, options), 'AR002000');
+      return wrapWithAuthResponse(
+        async () => emailCodeImpl.send(email, options),
+        "AR002000",
+      );
     },
 
-    async verify(email: string, code: string, options?: EmailCodeVerifyOptions) {
-      setLoadingState('authenticating');
+    async verify(
+      email: string,
+      code: string,
+      options?: EmailCodeVerifyOptions,
+    ) {
+      setLoadingState("authenticating");
       const result = await emailCodeImpl.verify(email, code, options);
       const response = authResultToResponse(result);
       if (response.data) {
-        emitter.emit('auth:login', {
+        emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
-          method: 'emailCode',
+          method: "emailCode",
         });
       } else if (response.error) {
-        emitter.emit('auth:error', { error: response.error });
+        emitter.emit("auth:error", { error: response.error });
       }
       return response;
     },
@@ -288,39 +330,45 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
   // ==========================================================================
 
   const social: SocialNamespace = {
-    async loginWithPopup(provider: SocialProvider, options?: SocialLoginOptions) {
-      setLoadingState('authenticating');
+    async loginWithPopup(
+      provider: SocialProvider,
+      options?: SocialLoginOptions,
+    ) {
+      setLoadingState("authenticating");
       const result = await socialImpl.loginWithPopup(provider, options);
       const response = authResultToResponse(result);
       if (response.data) {
-        emitter.emit('auth:login', {
+        emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
-          method: 'social',
+          method: "social",
         });
       } else if (response.error) {
-        emitter.emit('auth:error', { error: response.error });
+        emitter.emit("auth:error", { error: response.error });
       }
       return response;
     },
 
-    async loginWithRedirect(provider: SocialProvider, options?: SocialLoginOptions) {
-      setLoadingState('authenticating');
+    async loginWithRedirect(
+      provider: SocialProvider,
+      options?: SocialLoginOptions,
+    ) {
+      setLoadingState("authenticating");
       await socialImpl.loginWithRedirect(provider, options);
     },
 
     async handleCallback() {
-      setLoadingState('authenticating');
+      setLoadingState("authenticating");
       const result = await socialImpl.handleCallback();
       const response = authResultToResponse(result);
       if (response.data) {
-        emitter.emit('auth:login', {
+        emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
-          method: 'social',
+          method: "social",
         });
       } else if (response.error) {
-        emitter.emit('auth:error', { error: response.error });
+        emitter.emit("auth:error", { error: response.error });
       }
       return response;
     },
@@ -369,9 +417,9 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
     },
 
     async refresh() {
-      setLoadingState('refreshing');
+      setLoadingState("refreshing");
       const result = await sessionManager.refresh();
-      internalStores._loadingState.set('idle');
+      internalStores._loadingState.set("idle");
       return result;
     },
 
@@ -385,20 +433,55 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
   };
 
   // ==========================================================================
+  // Flow API Implementations (Consent, Device Flow, CIBA, Login Challenge)
+  // ==========================================================================
+
+  const consentImpl = new ConsentApiImpl({ issuer: config.issuer, http });
+  const deviceFlowImpl = new DeviceFlowApiImpl({ issuer: config.issuer, http });
+  const cibaImpl = new CIBAApiImpl({ issuer: config.issuer, http });
+  const loginChallengeImpl = new LoginChallengeApiImpl({
+    issuer: config.issuer,
+    http,
+  });
+
+  const consent: ConsentNamespace = {
+    getData: (challengeId) => consentImpl.getData(challengeId),
+    submit: (challengeId, options) => consentImpl.submit(challengeId, options),
+  };
+
+  const deviceFlow: DeviceFlowNamespace = {
+    submit: (userCode, approve) => deviceFlowImpl.submit(userCode, approve),
+  };
+
+  const ciba: CIBANamespace = {
+    getData: (loginHint) => cibaImpl.getData(loginHint),
+    approve: (authReqId, userId, sub) =>
+      cibaImpl.approve(authReqId, userId, sub),
+    reject: (authReqId, reason) => cibaImpl.reject(authReqId, reason),
+  };
+
+  const loginChallenge: LoginChallengeNamespace = {
+    getData: (challengeId) => loginChallengeImpl.getData(challengeId),
+  };
+
+  // ==========================================================================
   // Sign Out
   // ==========================================================================
 
   async function signOut(options?: SignOutOptions): Promise<void> {
-    setLoadingState('signing_out');
+    setLoadingState("signing_out");
     await sessionManager.logout(options);
-    emitter.emit('auth:logout', { redirectUri: options?.redirectUri });
+    emitter.emit("auth:logout", { redirectUri: options?.redirectUri });
   }
 
   // ==========================================================================
   // Event System
   // ==========================================================================
 
-  function on<E extends AuthEventName>(event: E, handler: AuthEventHandler<E>): () => void {
+  function on<E extends AuthEventName>(
+    event: E,
+    handler: AuthEventHandler<E>,
+  ): () => void {
     return emitter.on(event, handler);
   }
 
@@ -418,8 +501,8 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
    * @internal
    */
   function _syncFromSSR(
-    session: import('@authrim/core').Session | null,
-    user: import('@authrim/core').User | null
+    session: import("@authrim/core").Session | null,
+    user: import("@authrim/core").User | null,
   ): void {
     internalStores._session.set(session);
     internalStores._user.set(user);
@@ -451,6 +534,10 @@ export async function createAuthrim(config: AuthrimConfig): Promise<AuthrimClien
     emailCode,
     social,
     session,
+    consent,
+    deviceFlow,
+    ciba,
+    loginChallenge,
     signIn: {
       passkey: (options?: PasskeyLoginOptions) => passkey.login(options),
       social: (provider: SocialProvider, options?: SocialLoginOptions) =>

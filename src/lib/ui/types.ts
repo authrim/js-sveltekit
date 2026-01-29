@@ -2,20 +2,25 @@
  * Authrim UI Component Types
  */
 
-import type { SocialProvider } from '../types.js';
+import type { SocialProvider } from "../types.js";
 
 // =============================================================================
 // Common Types
 // =============================================================================
 
-export type Size = 'sm' | 'md' | 'lg';
-export type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
+export type Size = "sm" | "md" | "lg";
+export type Variant =
+  | "primary"
+  | "secondary"
+  | "outline"
+  | "ghost"
+  | "destructive";
 
 // =============================================================================
 // Form Types
 // =============================================================================
 
-export type EmailCodeStep = 'email' | 'code';
+export type EmailCodeStep = "email" | "code";
 
 export interface EmailCodeFormProps {
   step: EmailCodeStep;
@@ -27,7 +32,7 @@ export interface EmailCodeFormProps {
 
 export interface SocialLoginButtonsProps {
   providers: SocialProvider[];
-  layout?: 'horizontal' | 'vertical' | 'grid';
+  layout?: "horizontal" | "vertical" | "grid";
   loading?: boolean;
   loadingProvider?: SocialProvider;
   disabled?: boolean;
@@ -42,7 +47,7 @@ export interface PasskeyItemDisplay {
   name?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
-  deviceType?: 'platform' | 'cross-platform';
+  deviceType?: "platform" | "cross-platform";
 }
 
 export interface PasskeyListProps {
@@ -145,6 +150,70 @@ export interface SessionRevokeEvent {
 export interface AccountUnlinkEvent {
   accountId: string;
   provider: SocialProvider;
+}
+
+// =============================================================================
+// Alert Types
+// =============================================================================
+
+export type AlertVariant = "success" | "error" | "warning" | "info";
+
+// =============================================================================
+// Consent Types
+// =============================================================================
+
+export interface ConsentAllowEvent {
+  selectedOrgId: string | null;
+  actingAsUserId?: string;
+}
+
+export interface OrgChangeEvent {
+  orgId: string | null;
+}
+
+// =============================================================================
+// Device Flow Types
+// =============================================================================
+
+export interface DeviceCodeEvent {
+  userCode: string;
+}
+
+export interface DeviceCodeChangeEvent {
+  value: string;
+}
+
+// =============================================================================
+// CIBA Types
+// =============================================================================
+
+export interface CIBAApproveEvent {
+  authReqId: string;
+}
+
+export interface CIBADenyEvent {
+  authReqId: string;
+}
+
+// =============================================================================
+// Reauth Types
+// =============================================================================
+
+export interface ReauthEvent {
+  challengeId: string;
+}
+
+export interface ReauthSocialEvent {
+  challengeId: string;
+  provider: import("../types.js").SocialProvider;
+}
+
+// =============================================================================
+// Language Types
+// =============================================================================
+
+export interface LanguageChangeEvent {
+  locale: string;
 }
 
 // =============================================================================

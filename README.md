@@ -515,17 +515,13 @@ import { createAuthStores } from '@authrim/sveltekit/stores';
 - **CSRF Protection**: State parameter validation for OAuth flows
 - **HttpOnly Cookies**: Server-side session cookies are HttpOnly by default
 
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
-
 ## License
 
 [Apache-2.0](LICENSE)
 
 ## Links
 
-- [Documentation](https://docs.authrim.com)
+- [Documentation](https://authrim.com/sdk/sveltekit/)
 - [GitHub](https://github.com/authrim/js-sveltekit)
 - [npm](https://www.npmjs.com/package/@authrim/sveltekit)
 - [Authrim](https://authrim.com)

@@ -20,6 +20,7 @@
   disabled={loading}
   on:click={() => dispatch('click')}
   aria-label="Revoke session"
+  data-session-id={sessionId}
   {...$$restProps}
 >
   {#if loading}

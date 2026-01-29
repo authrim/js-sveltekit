@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="authrim-passkey-delete {className}">
+<div class="authrim-passkey-delete {className}" data-credential-id={credentialId}>
   {#if showConfirm}
     <div class="authrim-passkey-delete__confirm">
       <span class="authrim-passkey-delete__confirm-text">Delete?</span>

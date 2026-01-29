@@ -2,7 +2,7 @@
  * Authrim Svelte SDK Type Definitions
  */
 
-import type { Readable } from 'svelte/store';
+import type { Readable } from "svelte/store";
 import type {
   Session,
   User,
@@ -17,14 +17,17 @@ import type {
   SocialLoginOptions,
   DirectAuthLogoutOptions,
   NextAction,
-} from '@authrim/core';
-import type { AuthLoadingState, AuthError as StoreAuthError } from './stores/auth.js';
+} from "@authrim/core";
+import type {
+  AuthLoadingState,
+  AuthError as StoreAuthError,
+} from "./stores/auth.js";
 
 // =============================================================================
 // Configuration Types
 // =============================================================================
 
-export type StorageType = 'memory' | 'sessionStorage' | 'localStorage';
+export type StorageType = "memory" | "sessionStorage" | "localStorage";
 
 export interface StorageOptions {
   prefix?: string;
@@ -46,11 +49,13 @@ export interface AuthError {
   error: string;
   message: string;
   retryable: boolean;
-  severity: 'info' | 'warn' | 'error' | 'critical';
+  severity: "info" | "warn" | "error" | "critical";
   cause?: unknown;
 }
 
-export type AuthResponse<T> = { data: T; error: null } | { data: null; error: AuthError };
+export type AuthResponse<T> =
+  | { data: T; error: null }
+  | { data: null; error: AuthError };
 
 export interface AuthSessionData {
   session: Session;
@@ -65,27 +70,29 @@ export interface AuthSessionData {
 // =============================================================================
 
 export type AuthEventName =
-  | 'session:changed'
-  | 'session:expired'
-  | 'auth:login'
-  | 'auth:logout'
-  | 'auth:error'
-  | 'token:refreshed';
+  | "session:changed"
+  | "session:expired"
+  | "auth:login"
+  | "auth:logout"
+  | "auth:error"
+  | "token:refreshed";
 
 export interface AuthEventPayloads {
-  'session:changed': { session: Session | null; user: User | null };
-  'session:expired': { reason: 'timeout' | 'revoked' | 'logout' };
-  'auth:login': {
+  "session:changed": { session: Session | null; user: User | null };
+  "session:expired": { reason: "timeout" | "revoked" | "logout" };
+  "auth:login": {
     session: Session;
     user: User;
-    method: 'passkey' | 'emailCode' | 'social';
+    method: "passkey" | "emailCode" | "social";
   };
-  'auth:logout': { redirectUri?: string };
-  'auth:error': { error: AuthError };
-  'token:refreshed': { session: Session };
+  "auth:logout": { redirectUri?: string };
+  "auth:error": { error: AuthError };
+  "token:refreshed": { session: Session };
 }
 
-export type AuthEventHandler<E extends AuthEventName> = (payload: AuthEventPayloads[E]) => void;
+export type AuthEventHandler<E extends AuthEventName> = (
+  payload: AuthEventPayloads[E],
+) => void;
 
 // =============================================================================
 // Namespace Types
@@ -94,18 +101,23 @@ export type AuthEventHandler<E extends AuthEventName> = (payload: AuthEventPaylo
 export interface PasskeyNamespace {
   login(options?: PasskeyLoginOptions): Promise<AuthResponse<AuthSessionData>>;
   signUp(options: PasskeySignUpOptions): Promise<AuthResponse<AuthSessionData>>;
-  register(options?: PasskeyRegisterOptions): Promise<AuthResponse<PasskeyCredential>>;
+  register(
+    options?: PasskeyRegisterOptions,
+  ): Promise<AuthResponse<PasskeyCredential>>;
   isSupported(): boolean;
   isConditionalUIAvailable(): Promise<boolean>;
   cancelConditionalUI(): void;
 }
 
 export interface EmailCodeNamespace {
-  send(email: string, options?: EmailCodeSendOptions): Promise<AuthResponse<EmailCodeSendResult>>;
+  send(
+    email: string,
+    options?: EmailCodeSendOptions,
+  ): Promise<AuthResponse<EmailCodeSendResult>>;
   verify(
     email: string,
     code: string,
-    options?: EmailCodeVerifyOptions
+    options?: EmailCodeVerifyOptions,
   ): Promise<AuthResponse<AuthSessionData>>;
   hasPendingVerification(email: string): boolean;
   getRemainingTime(email: string): number;
@@ -115,9 +127,12 @@ export interface EmailCodeNamespace {
 export interface SocialNamespace {
   loginWithPopup(
     provider: SocialProvider,
-    options?: SocialLoginOptions
+    options?: SocialLoginOptions,
   ): Promise<AuthResponse<AuthSessionData>>;
-  loginWithRedirect(provider: SocialProvider, options?: SocialLoginOptions): Promise<void>;
+  loginWithRedirect(
+    provider: SocialProvider,
+    options?: SocialLoginOptions,
+  ): Promise<void>;
   handleCallback(): Promise<AuthResponse<AuthSessionData>>;
   hasCallbackParams(): boolean;
   getSupportedProviders(): SocialProvider[];
@@ -135,19 +150,65 @@ export interface SessionNamespace {
 export interface SignOutOptions extends DirectAuthLogoutOptions {}
 
 // =============================================================================
+// Flow Namespace Types (Consent, Device Flow, CIBA, Login Challenge)
+// =============================================================================
+
+export interface ConsentNamespace {
+  getData(
+    challengeId: string,
+  ): Promise<import("./direct-auth/consent.js").ConsentScreenData>;
+  submit(
+    challengeId: string,
+    options: import("./direct-auth/consent.js").ConsentSubmitOptions,
+  ): Promise<import("./direct-auth/consent.js").ConsentSubmitResult>;
+}
+
+export interface DeviceFlowNamespace {
+  submit(
+    userCode: string,
+    approve?: boolean,
+  ): Promise<import("./direct-auth/device-flow.js").DeviceFlowSubmitResult>;
+}
+
+export interface CIBANamespace {
+  getData(
+    loginHint: string,
+  ): Promise<import("./direct-auth/ciba.js").CIBAPendingRequest[]>;
+  approve(
+    authReqId: string,
+    userId: string,
+    sub: string,
+  ): Promise<import("./direct-auth/ciba.js").CIBAActionResult>;
+  reject(
+    authReqId: string,
+    reason?: string,
+  ): Promise<import("./direct-auth/ciba.js").CIBAActionResult>;
+}
+
+export interface LoginChallengeNamespace {
+  getData(
+    challengeId: string,
+  ): Promise<import("./direct-auth/login-challenge.js").LoginChallengeData>;
+}
+
+// =============================================================================
 // Shortcut Types
 // =============================================================================
 
 export interface SignInShortcuts {
-  passkey(options?: PasskeyLoginOptions): Promise<AuthResponse<AuthSessionData>>;
+  passkey(
+    options?: PasskeyLoginOptions,
+  ): Promise<AuthResponse<AuthSessionData>>;
   social(
     provider: SocialProvider,
-    options?: SocialLoginOptions
+    options?: SocialLoginOptions,
   ): Promise<AuthResponse<AuthSessionData>>;
 }
 
 export interface SignUpShortcuts {
-  passkey(options: PasskeySignUpOptions): Promise<AuthResponse<AuthSessionData>>;
+  passkey(
+    options: PasskeySignUpOptions,
+  ): Promise<AuthResponse<AuthSessionData>>;
 }
 
 // =============================================================================
@@ -172,12 +233,24 @@ export interface AuthrimClient {
   social: SocialNamespace;
   session: SessionNamespace;
 
+  /** Consent flow API */
+  consent: ConsentNamespace;
+  /** Device flow API (RFC 8628) */
+  deviceFlow: DeviceFlowNamespace;
+  /** CIBA (Client Initiated Backchannel Authentication) API */
+  ciba: CIBANamespace;
+  /** Login challenge API */
+  loginChallenge: LoginChallengeNamespace;
+
   signIn: SignInShortcuts;
   signUp: SignUpShortcuts;
 
   signOut(options?: SignOutOptions): Promise<void>;
 
-  on<E extends AuthEventName>(event: E, handler: AuthEventHandler<E>): () => void;
+  on<E extends AuthEventName>(
+    event: E,
+    handler: AuthEventHandler<E>,
+  ): () => void;
 
   /** Svelte stores for reactive state */
   stores: AuthStores;
@@ -220,6 +293,6 @@ export type {
   SocialLoginOptions,
   DirectAuthLogoutOptions,
   NextAction,
-} from '@authrim/core';
+} from "@authrim/core";
 
-export type { AuthLoadingState } from './stores/auth.js';
+export type { AuthLoadingState } from "./stores/auth.js";

@@ -36,7 +36,7 @@
   }
 </script>
 
-<div class="authrim-unlink {className}">
+<div class="authrim-unlink {className}" data-account-id={accountId} data-provider={provider}>
   {#if showConfirm}
     <div class="authrim-unlink__confirm">
       <span class="authrim-unlink__confirm-text">Unlink?</span>
