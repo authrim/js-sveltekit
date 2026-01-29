@@ -4,17 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@authrim/core': link:../js-core/packages/core
-
 importers:
 
   .:
-    dependencies:
-      '@authrim/core':
-        specifier: link:../js-core/packages/core
-        version: link:../js-core/packages/core
     devDependencies:
+      '@authrim/core':
+        specifier: ^0.1.10
+        version: 0.1.11
       '@sveltejs/adapter-auto':
         specifier: ^3.0.0
         version: 3.3.1(@sveltejs/kit@2.50.1(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.48.1)(vite@6.4.1(@types/node@20.19.30)))(svelte@5.48.1)(typescript@5.9.3)(vite@6.4.1(@types/node@20.19.30)))
@@ -74,6 +70,10 @@ packages:
 
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
+
+  '@authrim/core@0.1.11':
+    resolution: {integrity: sha512-2p/LkIs/LFrKC+5L/+nmVAk2h57tmBK30dtQiwdl08ge8t3YEBKRL9m8NWfKJ0svOGDw3NgYMiIX2K058Dx2Tw==}
+    engines: {node: '>=18'}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -1540,6 +1540,8 @@ snapshots:
       lru-cache: 11.2.4
 
   '@asamuzakjp/nwsapi@2.3.9': {}
+
+  '@authrim/core@0.1.11': {}
 
   '@csstools/color-helpers@5.1.0': {}
 
