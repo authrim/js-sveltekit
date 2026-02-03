@@ -124,7 +124,8 @@ export interface SocialAuthOptions {
   storage: AuthrimStorage;
   exchangeToken: (
     authCode: string,
-    codeVerifier: string
+    codeVerifier: string,
+    providerId?: string
   ) => Promise<{
     session?: Session;
     user?: User;
@@ -347,8 +348,22 @@ export class SocialAuthImpl implements SocialAuth {
       };
     }
 
+    const providerId = await this.storage.get(STORAGE_KEYS.PROVIDER);
+    if (!providerId) {
+      await this.clearStoredState();
+      return {
+        success: false,
+        error: {
+          error: 'invalid_state',
+          error_description: 'No provider found. Please try again.',
+          code: 'AR004006',
+          meta: { retryable: false, severity: 'error' },
+        },
+      };
+    }
+
     try {
-      const { session, user } = await this.exchangeToken(code, codeVerifier);
+      const { session, user } = await this.exchangeToken(code, codeVerifier, providerId);
 
       // Extract redirectTo from state (after validation)
       const stateData = storedState ? decodeStateData(storedState) : null;
@@ -553,8 +568,23 @@ export class SocialAuthImpl implements SocialAuth {
       return;
     }
 
+    const providerId = await this.storage.get(STORAGE_KEYS.PROVIDER);
+    if (!providerId) {
+      resolve({
+        success: false,
+        error: {
+          error: 'invalid_state',
+          error_description: 'No provider found',
+          code: 'AR004006',
+          meta: { retryable: false, severity: 'error' },
+        },
+      });
+      await this.clearStoredState();
+      return;
+    }
+
     try {
-      const { session, user } = await this.exchangeToken(data.code, codeVerifier);
+      const { session, user } = await this.exchangeToken(data.code, codeVerifier, providerId);
 
       // Extract redirectTo from state (after validation)
       const stateData = storedState ? decodeStateData(storedState) : null;
