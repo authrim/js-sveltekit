@@ -1,7 +1,7 @@
 {
   "name": "@authrim/sveltekit",
   "packageManager": "pnpm@9.15.0",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "SvelteKit SDK for Authrim authentication",
   "type": "module",
   "svelte": "./dist/index.js",
