@@ -10,7 +10,6 @@ import { redirect } from '@sveltejs/kit';
 import type { Session, User } from '@authrim/core';
 import {
   createServerSessionManager,
-  type ServerSessionManager,
   type ServerAuthContext,
   type ServerSessionManagerOptions,
 } from './session.js';
@@ -161,8 +160,8 @@ export async function verifyHandoffToken(
       },
       user: {
         id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
+        email: data.user.email ?? undefined,
+        name: data.user.name ?? undefined,
         emailVerified: data.user.emailVerified,
       },
     };
