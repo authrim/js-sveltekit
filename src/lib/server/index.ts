@@ -20,3 +20,9 @@ export {
   getSession,
   type AuthLoadOptions,
 } from './load.js';
+
+export {
+  verifyHandoffToken,
+  createHandoffHandler,
+  type HandoffVerifyOptions,
+} from './handoff.js';
