@@ -4,6 +4,7 @@ export {
   maskValue,
 } from './sensitive-data.js';
 export { getAuthrimCode, mapSeverity, ERROR_CODE_MAP } from './error-mapping.js';
+export { fetchClientConfig, type PublicClientConfig } from './client-config.js';
 export {
   convertToPublicKeyCredentialRequestOptions,
   convertToPublicKeyCredentialCreationOptions,

@@ -38,6 +38,16 @@ export interface AuthrimConfig {
   issuer: string;
   clientId: string;
   storage?: StorageOptions;
+  /**
+   * Enable OAuth 2.0 / OpenID Connect flows
+   * Default: false
+   */
+  enableOAuth?: boolean;
+  /**
+   * Silent login redirect URI (for OAuth callback)
+   * Default: {origin}/callback.html
+   */
+  silentLoginRedirectUri?: string;
 }
 
 // =============================================================================
@@ -192,6 +202,65 @@ export interface LoginChallengeNamespace {
 }
 
 // =============================================================================
+// OAuth Namespace Types
+// =============================================================================
+
+/**
+ * Try silent login options
+ */
+export interface TrySilentLoginOptions {
+  /**
+   * What to do if IdP has no session (login_required)
+   * - 'return': Return to returnTo URL with sso_error=login_required
+   * - 'login': Redirect to login screen, then return after login
+   * Default: 'return'
+   */
+  onLoginRequired?: "return" | "login";
+  /**
+   * URL to return after silent login completes
+   * Default: current page URL
+   * Security: Must be same origin
+   */
+  returnTo?: string;
+  /**
+   * OAuth scopes to request
+   * Default: SDK default scopes
+   */
+  scope?: string;
+}
+
+/**
+ * Silent login result
+ */
+export type SilentLoginResult =
+  | { status: "success" }
+  | { status: "login_required" }
+  | { status: "error"; error: string; errorDescription?: string };
+
+export interface OAuthNamespace {
+  /**
+   * Try silent SSO via top-level navigation (prompt=none)
+   *
+   * Safari ITP / Chrome Third-Party Cookie Phaseout compatible.
+   * This function redirects to IdP and does not return.
+   */
+  trySilentLogin(options?: TrySilentLoginOptions): Promise<never>;
+
+  /**
+   * Handle silent login callback
+   *
+   * Call this in your callback page. Handles both silent login
+   * results and regular OAuth callbacks.
+   */
+  handleSilentCallback(): Promise<SilentLoginResult>;
+
+  /**
+   * Handle regular OAuth callback (for authorization code flow)
+   */
+  handleCallback(callbackUrl?: string): Promise<import("@authrim/core").TokenSet>;
+}
+
+// =============================================================================
 // Shortcut Types
 // =============================================================================
 
@@ -232,6 +301,9 @@ export interface AuthrimClient {
   emailCode: EmailCodeNamespace;
   social: SocialNamespace;
   session: SessionNamespace;
+
+  /** OAuth 2.0 / OpenID Connect API (optional, enabled via config.enableOAuth) */
+  oauth?: OAuthNamespace;
 
   /** Consent flow API */
   consent: ConsentNamespace;

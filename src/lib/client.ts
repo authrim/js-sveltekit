@@ -11,6 +11,7 @@ import type {
   SocialLoginOptions,
   SocialProvider,
 } from "@authrim/core";
+import { createAuthrimClient } from "@authrim/core";
 
 import type {
   AuthrimConfig,
@@ -22,6 +23,7 @@ import type {
   EmailCodeNamespace,
   SocialNamespace,
   SessionNamespace,
+  OAuthNamespace,
   ConsentNamespace,
   DeviceFlowNamespace,
   CIBANamespace,
@@ -36,7 +38,8 @@ import {
   authResultToResponse,
   wrapWithAuthResponse,
   success,
-} from "./utils/response.js";
+  fetchClientConfig,
+} from "./utils/index.js";
 
 import { PasskeyAuthImpl } from "./direct-auth/passkey.js";
 import { EmailCodeAuthImpl } from "./direct-auth/email-code.js";
@@ -46,6 +49,7 @@ import { ConsentApiImpl } from "./direct-auth/consent.js";
 import { DeviceFlowApiImpl } from "./direct-auth/device-flow.js";
 import { CIBAApiImpl } from "./direct-auth/ciba.js";
 import { LoginChallengeApiImpl } from "./direct-auth/login-challenge.js";
+import { createOAuthNamespace } from "./oauth/index.js";
 
 import { BrowserHttpClient } from "./providers/http.js";
 import { BrowserCryptoProvider } from "./providers/crypto.js";
@@ -130,6 +134,39 @@ export async function createAuthrim(
 
   // Initialize stores
   const internalStores: InternalAuthStores = createAuthStores();
+
+  // ==========================================================================
+  // OAuth (Optional)
+  // ==========================================================================
+
+  let oauth: OAuthNamespace | undefined;
+
+  if (config.enableOAuth) {
+    // Fetch public client configuration from server
+    const clientConfig = await fetchClientConfig(config.issuer, config.clientId);
+
+    if (clientConfig) {
+      console.debug('[Authrim] Client configuration loaded:', {
+        client_id: clientConfig.client_id,
+        client_name: clientConfig.client_name,
+        login_ui_url: clientConfig.login_ui_url,
+      });
+    }
+
+    // Create core client for OAuth flows
+    const coreClient = await createAuthrimClient({
+      issuer: config.issuer,
+      clientId: config.clientId,
+      http,
+      crypto,
+      storage,
+    });
+
+    // Create OAuth namespace
+    oauth = createOAuthNamespace(coreClient, {
+      silentLoginRedirectUri: config.silentLoginRedirectUri,
+    });
+  }
 
   // Create session manager
   const sessionManager = new SessionAuthImpl({
@@ -538,6 +575,7 @@ export async function createAuthrim(
     emailCode,
     social,
     session,
+    oauth,
     consent,
     deviceFlow,
     ciba,
