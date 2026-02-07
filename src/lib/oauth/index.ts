@@ -27,7 +27,7 @@ export function createOAuthNamespace(
   coreClient: CoreClient,
   config: {
     silentLoginRedirectUri?: string;
-  }
+  },
 ) {
   return {
     /**
@@ -35,6 +35,9 @@ export function createOAuthNamespace(
      *
      * Safari ITP / Chrome Third-Party Cookie Phaseout compatible.
      * This function redirects to IdP and does not return.
+     *
+     * Uses /authorize?prompt=none&handoff=true for unified SSO experience.
+     * Works for both Direct Auth (Passkey/EmailCode) and External IdP (Google/Apple).
      *
      * @param options - Silent login options
      * @throws Error if returnTo URL is not same origin
@@ -61,7 +64,7 @@ export function createOAuthNamespace(
       };
       const state = stringToBase64url(JSON.stringify(stateData));
 
-      // Build authorization URL with prompt=none
+      // Build authorization URL with handoff=true
       const result = await coreClient.buildAuthorizationUrl({
         redirectUri:
           config.silentLoginRedirectUri ??
@@ -71,8 +74,9 @@ export function createOAuthNamespace(
         exposeState: false, // We manage state ourselves
       });
 
-      // Append our custom state to the URL
+      // Add handoff=true parameter for Session Token Handoff SSO
       const url = new URL(result.url);
+      url.searchParams.set("handoff", "true");
       url.searchParams.set("state", state);
 
       // Redirect (this function never returns)
@@ -219,7 +223,9 @@ export function createOAuthNamespace(
      * @returns Tokens from token exchange
      */
     async handleCallback(callbackUrl?: string) {
-      const url = callbackUrl ?? (typeof window !== "undefined" ? window.location.href : "");
+      const url =
+        callbackUrl ??
+        (typeof window !== "undefined" ? window.location.href : "");
       return await coreClient.handleCallback(url);
     },
   };

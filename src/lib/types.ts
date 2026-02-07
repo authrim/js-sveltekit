@@ -257,7 +257,9 @@ export interface OAuthNamespace {
   /**
    * Handle regular OAuth callback (for authorization code flow)
    */
-  handleCallback(callbackUrl?: string): Promise<import("@authrim/core").TokenSet>;
+  handleCallback(
+    callbackUrl?: string,
+  ): Promise<import("@authrim/core").TokenSet>;
 }
 
 // =============================================================================
