@@ -11,16 +11,15 @@ import {
   type SocialProvider,
   type SocialLoginOptions,
   type AuthResult,
-  type Session,
-  type User,
-} from '@authrim/core';
-import { getAuthrimCode, mapSeverity } from '../utils/error-mapping.js';
+} from "@authrim/core";
+import type { AuthResultWithTokens, TokenOrSessionResult } from "./protocol.js";
+import { getAuthrimCode, mapSeverity } from "../utils/error-mapping.js";
 
 const STORAGE_KEYS = {
-  STATE: 'authrim:direct:social:state',
-  CODE_VERIFIER: 'authrim:direct:social:code_verifier',
-  PROVIDER: 'authrim:direct:social:provider',
-  REDIRECT_URI: 'authrim:direct:social:redirect_uri',
+  STATE: "authrim:direct:social:state",
+  CODE_VERIFIER: "authrim:direct:social:code_verifier",
+  PROVIDER: "authrim:direct:social:provider",
+  REDIRECT_URI: "authrim:direct:social:redirect_uri",
 };
 
 // =============================================================================
@@ -32,15 +31,15 @@ const STORAGE_KEYS = {
  * Only allows paths starting with '/' and blocks protocol schemes.
  */
 function isValidRelativePath(path: string): boolean {
-  if (!path || typeof path !== 'string') return false;
+  if (!path || typeof path !== "string") return false;
   // Block protocol schemes (e.g., https:, javascript:, data:)
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return false;
   // Block protocol-relative URLs (e.g., //evil.com)
-  if (path.startsWith('//')) return false;
+  if (path.startsWith("//")) return false;
   // Block backslashes (some browsers normalize \/ to //)
-  if (path.includes('\\')) return false;
+  if (path.includes("\\")) return false;
   // Must start with '/' (relative to origin)
-  if (!path.startsWith('/')) return false;
+  if (!path.startsWith("/")) return false;
   return true;
 }
 
@@ -49,9 +48,12 @@ function isValidRelativePath(path: string): boolean {
  */
 function base64urlEncode(bytes: Uint8Array): string {
   // Use reduce instead of spread to avoid stack overflow with large arrays
-  const binary = bytes.reduce((str, byte) => str + String.fromCharCode(byte), '');
+  const binary = bytes.reduce(
+    (str, byte) => str + String.fromCharCode(byte),
+    "",
+  );
   const base64 = btoa(binary);
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
@@ -59,10 +61,10 @@ function base64urlEncode(bytes: Uint8Array): string {
  */
 function base64urlDecode(encoded: string): Uint8Array {
   // Restore standard base64 characters
-  let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
   // Add padding if needed
   while (base64.length % 4) {
-    base64 += '=';
+    base64 += "=";
   }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -109,8 +111,9 @@ function decodeStateData(encoded: string): StateData | null {
     const json = new TextDecoder().decode(bytes);
     const data = JSON.parse(json) as StateData;
     // Validate structure
-    if (typeof data.nonce !== 'string') return null;
-    if (data.redirectTo !== undefined && typeof data.redirectTo !== 'string') return null;
+    if (typeof data.nonce !== "string") return null;
+    if (data.redirectTo !== undefined && typeof data.redirectTo !== "string")
+      return null;
     return data;
   } catch {
     return null;
@@ -123,13 +126,10 @@ export interface SocialAuthOptions {
   crypto: CryptoProvider;
   storage: AuthrimStorage;
   exchangeToken: (
-    authCode: string,
+    directAuthArtifact: string,
     codeVerifier: string,
-    providerId?: string
-  ) => Promise<{
-    session?: Session;
-    user?: User;
-  }>;
+    providerId?: string,
+  ) => Promise<TokenOrSessionResult>;
   /**
    * Popup close detection interval in milliseconds.
    * Lower values provide faster detection but use more CPU.
@@ -153,7 +153,7 @@ export class SocialAuthImpl implements SocialAuth {
   private readonly clientId: string;
   private readonly pkce: PKCEHelper;
   private readonly storage: AuthrimStorage;
-  private readonly exchangeToken: SocialAuthOptions['exchangeToken'];
+  private readonly exchangeToken: SocialAuthOptions["exchangeToken"];
   private readonly popupCheckIntervalMs: number;
   private popupWindow: Window | null = null;
   private popupCheckIntervalId: number | null = null;
@@ -166,11 +166,12 @@ export class SocialAuthImpl implements SocialAuth {
     this.pkce = new PKCEHelper(options.crypto);
     this.storage = options.storage;
     this.exchangeToken = options.exchangeToken;
-    this.popupCheckIntervalMs = options.popupCheckInterval ?? DEFAULT_POPUP_CHECK_INTERVAL;
+    this.popupCheckIntervalMs =
+      options.popupCheckInterval ?? DEFAULT_POPUP_CHECK_INTERVAL;
 
     this.boundHandlePopupMessage = this.handlePopupMessage.bind(this);
-    if (typeof window !== 'undefined') {
-      window.addEventListener('message', this.boundHandlePopupMessage);
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", this.boundHandlePopupMessage);
     }
   }
 
@@ -179,14 +180,14 @@ export class SocialAuthImpl implements SocialAuth {
    */
   destroy(): void {
     this.cleanupPopup();
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('message', this.boundHandlePopupMessage);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("message", this.boundHandlePopupMessage);
     }
   }
 
   async loginWithPopup(
     provider: SocialProvider,
-    options?: SocialLoginOptions & { redirectTo?: string }
+    options?: SocialLoginOptions & { redirectTo?: string },
   ): Promise<AuthResult> {
     const { codeVerifier, codeChallenge } = await this.pkce.generatePKCE();
     const nonce = await this.generateState();
@@ -210,18 +211,19 @@ export class SocialAuthImpl implements SocialAuth {
     const popupFeatures = this.getPopupFeatures(options?.popupFeatures);
     const popup = window.open(
       authUrl,
-      'authrim_social_popup',
-      this.buildPopupFeaturesString(popupFeatures)
+      "authrim_social_popup",
+      this.buildPopupFeaturesString(popupFeatures),
     );
 
     if (!popup) {
       return {
         success: false,
         error: {
-          error: 'popup_blocked',
-          error_description: 'Popup was blocked by the browser. Please allow popups and try again.',
-          code: 'AR004001',
-          meta: { retryable: false, severity: 'warn' },
+          error: "popup_blocked",
+          error_description:
+            "Popup was blocked by the browser. Please allow popups and try again.",
+          code: "AR004001",
+          meta: { retryable: false, severity: "warn" },
         },
       };
     }
@@ -243,10 +245,11 @@ export class SocialAuthImpl implements SocialAuth {
           resolve({
             success: false,
             error: {
-              error: 'popup_closed',
-              error_description: 'The login popup was closed before completing authentication.',
-              code: 'AR004002',
-              meta: { retryable: false, severity: 'warn' },
+              error: "popup_closed",
+              error_description:
+                "The login popup was closed before completing authentication.",
+              code: "AR004002",
+              meta: { retryable: false, severity: "warn" },
             },
           });
         }
@@ -256,7 +259,7 @@ export class SocialAuthImpl implements SocialAuth {
 
   async loginWithRedirect(
     provider: SocialProvider,
-    options?: SocialLoginOptions & { redirectTo?: string }
+    options?: SocialLoginOptions & { redirectTo?: string },
   ): Promise<void> {
     const { codeVerifier, codeChallenge } = await this.pkce.generatePKCE();
     const nonce = await this.generateState();
@@ -268,7 +271,8 @@ export class SocialAuthImpl implements SocialAuth {
         : undefined;
     const state = encodeStateData(nonce, validatedRedirectTo);
 
-    const redirectUri = options?.redirectUri || window.location.href.split('?')[0];
+    const redirectUri =
+      options?.redirectUri || window.location.href.split("?")[0];
 
     await this.storage.set(STORAGE_KEYS.STATE, state);
     await this.storage.set(STORAGE_KEYS.CODE_VERIFIER, codeVerifier);
@@ -288,10 +292,10 @@ export class SocialAuthImpl implements SocialAuth {
 
   async handleCallback(): Promise<AuthResult> {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    const error = params.get('error');
-    const errorDescription = params.get('error_description');
+    const code = params.get("code");
+    const state = params.get("state");
+    const error = params.get("error");
+    const errorDescription = params.get("error_description");
 
     if (error) {
       await this.clearStoredState();
@@ -299,9 +303,9 @@ export class SocialAuthImpl implements SocialAuth {
         success: false,
         error: {
           error: error,
-          error_description: errorDescription || 'Authentication failed',
-          code: 'AR004003',
-          meta: { retryable: false, severity: 'error' },
+          error_description: errorDescription || "Authentication failed",
+          code: "AR004003",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -311,10 +315,10 @@ export class SocialAuthImpl implements SocialAuth {
       return {
         success: false,
         error: {
-          error: 'invalid_response',
-          error_description: 'Missing authorization code or state parameter',
-          code: 'AR004004',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_response",
+          error_description: "Missing authorization code or state parameter",
+          code: "AR004004",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -327,10 +331,10 @@ export class SocialAuthImpl implements SocialAuth {
       return {
         success: false,
         error: {
-          error: 'state_mismatch',
-          error_description: 'State parameter mismatch. Please try again.',
-          code: 'AR004005',
-          meta: { retryable: false, severity: 'error' },
+          error: "state_mismatch",
+          error_description: "State parameter mismatch. Please try again.",
+          code: "AR004005",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -340,10 +344,10 @@ export class SocialAuthImpl implements SocialAuth {
       return {
         success: false,
         error: {
-          error: 'invalid_state',
-          error_description: 'No code verifier found. Please try again.',
-          code: 'AR004006',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_state",
+          error_description: "No code verifier found. Please try again.",
+          code: "AR004006",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -354,16 +358,20 @@ export class SocialAuthImpl implements SocialAuth {
       return {
         success: false,
         error: {
-          error: 'invalid_state',
-          error_description: 'No provider found. Please try again.',
-          code: 'AR004006',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_state",
+          error_description: "No provider found. Please try again.",
+          code: "AR004006",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
 
     try {
-      const { session, user } = await this.exchangeToken(code, codeVerifier, providerId);
+      const { session, user, tokens } = await this.exchangeToken(
+        code,
+        codeVerifier,
+        providerId,
+      );
 
       // Extract redirectTo from state (after validation)
       const stateData = storedState ? decodeStateData(storedState) : null;
@@ -379,8 +387,9 @@ export class SocialAuthImpl implements SocialAuth {
         success: true,
         session,
         user,
+        tokens,
         redirectTo,
-      } as AuthResult & { redirectTo?: string };
+      } as AuthResultWithTokens & { redirectTo?: string };
     } catch (err) {
       await this.clearStoredState();
 
@@ -390,7 +399,7 @@ export class SocialAuthImpl implements SocialAuth {
           error: {
             error: err.code,
             error_description: err.message,
-            code: getAuthrimCode(err.code, 'AR004000'),
+            code: getAuthrimCode(err.code, "AR004000"),
             meta: {
               retryable: err.meta.retryable,
               severity: mapSeverity(err.meta.severity),
@@ -402,10 +411,11 @@ export class SocialAuthImpl implements SocialAuth {
       return {
         success: false,
         error: {
-          error: 'token_error',
-          error_description: err instanceof Error ? err.message : 'Failed to exchange token',
-          code: 'AR004007',
-          meta: { retryable: false, severity: 'error' },
+          error: "token_error",
+          error_description:
+            err instanceof Error ? err.message : "Failed to exchange token",
+          code: "AR004007",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -413,17 +423,17 @@ export class SocialAuthImpl implements SocialAuth {
 
   hasCallbackParams(): boolean {
     const params = new URLSearchParams(window.location.search);
-    return params.has('code') || params.has('error');
+    return params.has("code") || params.has("error");
   }
 
   getSupportedProviders(): SocialProvider[] {
-    return ['google', 'github', 'apple', 'microsoft', 'facebook'];
+    return ["google", "github", "apple", "microsoft", "facebook"];
   }
 
   private async generateState(): Promise<string> {
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   private buildAuthorizationUrl(
@@ -434,24 +444,24 @@ export class SocialAuthImpl implements SocialAuth {
       redirectUri: string;
       scopes?: string[];
       loginHint?: string;
-    }
+    },
   ): string {
     const params = new URLSearchParams({
-      response_type: 'code',
+      response_type: "code",
       client_id: this.clientId,
       redirect_uri: options.redirectUri,
       state: options.state,
       code_challenge: options.codeChallenge,
-      code_challenge_method: 'S256',
+      code_challenge_method: "S256",
       provider,
     });
 
     if (options.scopes && options.scopes.length > 0) {
-      params.set('scope', options.scopes.join(' '));
+      params.set("scope", options.scopes.join(" "));
     }
 
     if (options.loginHint) {
-      params.set('login_hint', options.loginHint);
+      params.set("login_hint", options.loginHint);
     }
 
     return `${this.issuer}/api/v1/auth/authorize?${params.toString()}`;
@@ -461,7 +471,10 @@ export class SocialAuthImpl implements SocialAuth {
     return `${window.location.origin}/auth/callback/popup`;
   }
 
-  private getPopupFeatures(options?: { width?: number; height?: number }): PopupFeatures {
+  private getPopupFeatures(options?: {
+    width?: number;
+    height?: number;
+  }): PopupFeatures {
     const width = options?.width || 500;
     const height = options?.height || 600;
     const left = Math.max(0, (window.screen.width - width) / 2);
@@ -476,13 +489,13 @@ export class SocialAuthImpl implements SocialAuth {
       `height=${features.height}`,
       `left=${features.left}`,
       `top=${features.top}`,
-      'scrollbars=yes',
-      'resizable=yes',
-      'status=no',
-      'menubar=no',
-      'toolbar=no',
-      'location=yes',
-    ].join(',');
+      "scrollbars=yes",
+      "resizable=yes",
+      "status=no",
+      "menubar=no",
+      "toolbar=no",
+      "location=yes",
+    ].join(",");
   }
 
   private async handlePopupMessage(event: MessageEvent): Promise<void> {
@@ -498,7 +511,7 @@ export class SocialAuthImpl implements SocialAuth {
       error_description?: string;
     };
 
-    if (data.type !== 'authrim:social:callback') {
+    if (data.type !== "authrim:social:callback") {
       return;
     }
 
@@ -514,9 +527,9 @@ export class SocialAuthImpl implements SocialAuth {
         success: false,
         error: {
           error: data.error,
-          error_description: data.error_description || 'Authentication failed',
-          code: 'AR004003',
-          meta: { retryable: false, severity: 'error' },
+          error_description: data.error_description || "Authentication failed",
+          code: "AR004003",
+          meta: { retryable: false, severity: "error" },
         },
       });
       await this.clearStoredState();
@@ -527,10 +540,10 @@ export class SocialAuthImpl implements SocialAuth {
       resolve({
         success: false,
         error: {
-          error: 'invalid_response',
-          error_description: 'Missing authorization code or state',
-          code: 'AR004004',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_response",
+          error_description: "Missing authorization code or state",
+          code: "AR004004",
+          meta: { retryable: false, severity: "error" },
         },
       });
       await this.clearStoredState();
@@ -544,10 +557,10 @@ export class SocialAuthImpl implements SocialAuth {
       resolve({
         success: false,
         error: {
-          error: 'state_mismatch',
-          error_description: 'State parameter mismatch',
-          code: 'AR004005',
-          meta: { retryable: false, severity: 'error' },
+          error: "state_mismatch",
+          error_description: "State parameter mismatch",
+          code: "AR004005",
+          meta: { retryable: false, severity: "error" },
         },
       });
       await this.clearStoredState();
@@ -558,10 +571,10 @@ export class SocialAuthImpl implements SocialAuth {
       resolve({
         success: false,
         error: {
-          error: 'invalid_state',
-          error_description: 'No code verifier found',
-          code: 'AR004006',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_state",
+          error_description: "No code verifier found",
+          code: "AR004006",
+          meta: { retryable: false, severity: "error" },
         },
       });
       await this.clearStoredState();
@@ -573,10 +586,10 @@ export class SocialAuthImpl implements SocialAuth {
       resolve({
         success: false,
         error: {
-          error: 'invalid_state',
-          error_description: 'No provider found',
-          code: 'AR004006',
-          meta: { retryable: false, severity: 'error' },
+          error: "invalid_state",
+          error_description: "No provider found",
+          code: "AR004006",
+          meta: { retryable: false, severity: "error" },
         },
       });
       await this.clearStoredState();
@@ -584,7 +597,11 @@ export class SocialAuthImpl implements SocialAuth {
     }
 
     try {
-      const { session, user } = await this.exchangeToken(data.code, codeVerifier, providerId);
+      const { session, user, tokens } = await this.exchangeToken(
+        data.code,
+        codeVerifier,
+        providerId,
+      );
 
       // Extract redirectTo from state (after validation)
       const stateData = storedState ? decodeStateData(storedState) : null;
@@ -599,18 +616,20 @@ export class SocialAuthImpl implements SocialAuth {
         success: true,
         session,
         user,
+        tokens,
         redirectTo,
-      } as AuthResult & { redirectTo?: string });
+      } as AuthResultWithTokens & { redirectTo?: string });
     } catch (err) {
       await this.clearStoredState();
 
       resolve({
         success: false,
         error: {
-          error: 'token_error',
-          error_description: err instanceof Error ? err.message : 'Failed to exchange token',
-          code: 'AR004007',
-          meta: { retryable: false, severity: 'error' },
+          error: "token_error",
+          error_description:
+            err instanceof Error ? err.message : "Failed to exchange token",
+          code: "AR004007",
+          meta: { retryable: false, severity: "error" },
         },
       });
     }
@@ -638,10 +657,10 @@ export class SocialAuthImpl implements SocialAuth {
 
   private clearUrlParams(): void {
     const url = new URL(window.location.href);
-    url.searchParams.delete('code');
-    url.searchParams.delete('state');
-    url.searchParams.delete('error');
-    url.searchParams.delete('error_description');
-    window.history.replaceState({}, '', url.toString());
+    url.searchParams.delete("code");
+    url.searchParams.delete("state");
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_description");
+    window.history.replaceState({}, "", url.toString());
   }
 }

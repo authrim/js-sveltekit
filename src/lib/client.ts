@@ -10,8 +10,16 @@ import type {
   EmailCodeVerifyOptions,
   SocialLoginOptions,
   SocialProvider,
+  Session,
+  User,
 } from "@authrim/core";
-import { createAuthrimClient } from "@authrim/core";
+import {
+  AuthrimError,
+  CustomerProfileClient,
+  DeviceInventoryClient,
+  StepUpClient,
+  createAuthrimClient,
+} from "@authrim/core";
 
 import type {
   AuthrimConfig,
@@ -28,10 +36,14 @@ import type {
   DeviceFlowNamespace,
   CIBANamespace,
   LoginChallengeNamespace,
+  StepUpNamespace,
+  CustomerProfilesNamespace,
+  DevicesNamespace,
   SignOutOptions,
   AuthResponse,
   AuthSessionData,
   AuthStores,
+  SvelteKitAuthMode,
 } from "./types.js";
 
 import {
@@ -123,9 +135,16 @@ class AuthEventEmitter {
 export async function createAuthrim(
   config: AuthrimConfig,
 ): Promise<AuthrimClient> {
+  assertValidSvelteKitAuthConfig(config);
+  const authMode = resolveAuthMode(config);
+  const serverSession = resolveServerSession(config);
+
   // Initialize providers
   const http = new BrowserHttpClient();
-  const crypto = new BrowserCryptoProvider();
+  const crypto = new BrowserCryptoProvider({
+    issuer: config.issuer,
+    clientId: config.clientId,
+  });
   const storageOptions: BrowserStorageOptions = config.storage ?? {};
   const storage = createBrowserStorage(storageOptions);
 
@@ -135,6 +154,31 @@ export async function createAuthrim(
   // Initialize stores
   const internalStores: InternalAuthStores = createAuthStores();
 
+  const stepUpClient = new StepUpClient({
+    issuer: config.issuer,
+    http,
+  });
+  const customerProfileClient = new CustomerProfileClient({
+    issuer: config.issuer,
+    http,
+  });
+  const deviceInventoryClient = new DeviceInventoryClient({
+    issuer: config.issuer,
+    http,
+  });
+  const stepUp: StepUpNamespace = {
+    start: (request, options) => stepUpClient.start(request, options),
+    getAction: (actionId, options) => stepUpClient.getAction(actionId, options),
+    complete: (actionId, request, options) => stepUpClient.complete(actionId, request, options),
+    resend: (actionId, options) => stepUpClient.resend(actionId, options),
+    cancel: (actionId, options) => stepUpClient.cancel(actionId, options),
+  };
+  const customerProfiles: CustomerProfilesNamespace = {
+    getWithElevationGrant: (subjectUserId, options) =>
+      customerProfileClient.getWithElevationGrant(subjectUserId, options),
+    updateDelegated: (subjectUserId, input, options) =>
+      customerProfileClient.updateDelegated(subjectUserId, input, options),
+  };
   // ==========================================================================
   // OAuth (Optional)
   // ==========================================================================
@@ -143,10 +187,13 @@ export async function createAuthrim(
 
   if (config.enableOAuth) {
     // Fetch public client configuration from server
-    const clientConfig = await fetchClientConfig(config.issuer, config.clientId);
+    const clientConfig = await fetchClientConfig(
+      config.issuer,
+      config.clientId,
+    );
 
     if (clientConfig) {
-      console.debug('[Authrim] Client configuration loaded:', {
+      console.debug("[Authrim] Client configuration loaded:", {
         client_id: clientConfig.client_id,
         client_name: clientConfig.client_name,
         login_ui_url: clientConfig.login_ui_url,
@@ -160,11 +207,22 @@ export async function createAuthrim(
       http,
       crypto,
       storage,
+      dpop: {
+        tokenRequests: shouldUseDPoPTokenRequests(config),
+        algorithm: "ES256",
+      },
     });
 
     // Create OAuth namespace
     oauth = createOAuthNamespace(coreClient, {
       silentLoginRedirectUri: config.silentLoginRedirectUri,
+      preflightBrowserTokenPath: () =>
+        ensureBrowserDPoPPreflight(
+          crypto,
+          resolveBrowserPublicClientMode(config),
+          shouldUseDPoPTokenRequests(config),
+        ),
+      browserTokenPathEnabled: authMode === "browser",
     });
   }
 
@@ -173,7 +231,31 @@ export async function createAuthrim(
     issuer: config.issuer,
     clientId: config.clientId,
     http,
+    mode: authMode,
+    serverSession,
   });
+  const devices: DevicesNamespace = {
+    list: (options) =>
+      deviceInventoryClient.list({
+        ...(options ?? {}),
+        accessToken: resolveDeviceInventoryAccessToken(sessionManager, options?.accessToken),
+      }),
+    rename: (deviceId, displayName, options) =>
+      deviceInventoryClient.rename(deviceId, displayName, {
+        ...(options ?? {}),
+        accessToken: resolveDeviceInventoryAccessToken(sessionManager, options?.accessToken),
+      }),
+    async unlink(deviceId, options) {
+      const result = await deviceInventoryClient.unlink(deviceId, {
+        ...(options ?? {}),
+        accessToken: resolveDeviceInventoryAccessToken(sessionManager, options?.accessToken),
+      });
+      if (result.device_unlink_result.signed_out_required) {
+        await crypto.clearDPoPKeyPair();
+      }
+      return result;
+    },
+  };
 
   // Token exchange callback
   const exchangeToken = async (
@@ -181,7 +263,12 @@ export async function createAuthrim(
     codeVerifier: string,
     providerId?: string,
   ) => {
-    return sessionManager.exchangeToken(authCode, codeVerifier, undefined, providerId);
+    return sessionManager.exchangeToken(
+      authCode,
+      codeVerifier,
+      undefined,
+      providerId,
+    );
   };
 
   // Create Direct Auth implementations
@@ -214,8 +301,8 @@ export async function createAuthrim(
   // ==========================================================================
 
   function updateStoresOnLogin(
-    session: AuthSessionData["session"],
-    user: AuthSessionData["user"],
+    session: Session,
+    user: User,
   ) {
     internalStores._session.set(session);
     internalStores._user.set(user);
@@ -273,7 +360,7 @@ export async function createAuthrim(
       setLoadingState("authenticating");
       const result = await passkeyImpl.login(options);
       const response = authResultToResponse(result);
-      if (response.data) {
+      if (response.data?.session && response.data?.user) {
         emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
@@ -289,7 +376,7 @@ export async function createAuthrim(
       setLoadingState("authenticating");
       const result = await passkeyImpl.signUp(options);
       const response = authResultToResponse(result);
-      if (response.data) {
+      if (response.data?.session && response.data?.user) {
         emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
@@ -341,7 +428,7 @@ export async function createAuthrim(
       setLoadingState("authenticating");
       const result = await emailCodeImpl.verify(email, code, options);
       const response = authResultToResponse(result);
-      if (response.data) {
+      if (response.data?.session && response.data?.user) {
         emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
@@ -378,7 +465,7 @@ export async function createAuthrim(
       setLoadingState("authenticating");
       const result = await socialImpl.loginWithPopup(provider, options);
       const response = authResultToResponse(result);
-      if (response.data) {
+      if (response.data?.session && response.data?.user) {
         emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
@@ -402,7 +489,7 @@ export async function createAuthrim(
       setLoadingState("authenticating");
       const result = await socialImpl.handleCallback();
       const response = authResultToResponse(result);
-      if (response.data) {
+      if (response.data?.session && response.data?.user) {
         emitter.emit("auth:login", {
           session: response.data.session,
           user: response.data.user,
@@ -512,6 +599,7 @@ export async function createAuthrim(
   async function signOut(options?: SignOutOptions): Promise<void> {
     setLoadingState("signing_out");
     await sessionManager.logout(options);
+    await crypto.clearDPoPKeyPair();
     emitter.emit("auth:logout", { redirectUri: options?.redirectUri });
   }
 
@@ -549,6 +637,10 @@ export async function createAuthrim(
     internalStores._user.set(user);
   }
 
+  function _shouldFetchSessionOnMount(): boolean {
+    return authMode === "browser" || config.serverSession?.checkOnMount === true;
+  }
+
   // ==========================================================================
   // Destroy (cleanup resources)
   // ==========================================================================
@@ -580,6 +672,9 @@ export async function createAuthrim(
     deviceFlow,
     ciba,
     loginChallenge,
+    stepUp,
+    customerProfiles,
+    devices,
     signIn: {
       passkey: (options?: PasskeyLoginOptions) => passkey.login(options),
       social: (provider: SocialProvider, options?: SocialLoginOptions) =>
@@ -592,6 +687,89 @@ export async function createAuthrim(
     on,
     stores,
     _syncFromSSR,
+    _shouldFetchSessionOnMount,
     destroy,
   };
+}
+
+function resolveDeviceInventoryAccessToken(
+  sessionManager: SessionAuthImpl,
+  explicitAccessToken?: string,
+): string {
+  const token = explicitAccessToken ?? sessionManager.getToken();
+  if (!token) {
+    throw new AuthrimError(
+      "invalid_request",
+      "Device inventory requests require an authenticated session or explicit accessToken",
+    );
+  }
+  return token;
+}
+
+type BrowserPublicClientMode = NonNullable<AuthrimConfig["browserPublicClientMode"]>;
+
+function resolveAuthMode(config: AuthrimConfig): SvelteKitAuthMode {
+  return config.authMode ?? "server";
+}
+
+function resolveServerSession(
+  config: AuthrimConfig,
+): NonNullable<ConstructorParameters<typeof SessionAuthImpl>[0]["serverSession"]> {
+  const serverSession = config.serverSession ?? {};
+  return {
+    exchangeEndpoint:
+      serverSession.exchangeEndpoint ?? "/authrim/session/exchange",
+    sessionEndpoint: serverSession.sessionEndpoint ?? "/authrim/session",
+    logoutEndpoint:
+      serverSession.logoutEndpoint ?? "/authrim/session/logout",
+    credentials: serverSession.credentials ?? "same-origin",
+  };
+}
+
+function assertValidSvelteKitAuthConfig(config: AuthrimConfig): void {
+  if (
+    resolveAuthMode(config) === "server" &&
+    config.browserRefreshTokenPolicy === "dpop_bound"
+  ) {
+    throw new AuthrimError(
+      "invalid_request",
+      "browserRefreshTokenPolicy='dpop_bound' requires authMode='browser' in @authrim/sveltekit.",
+    );
+  }
+}
+
+function resolveBrowserPublicClientMode(config: AuthrimConfig): BrowserPublicClientMode {
+  return config.browserPublicClientMode ?? (resolveAuthMode(config) === "server" ? "cookie_fallback" : "strict");
+}
+
+function shouldUseDPoPTokenRequests(config: AuthrimConfig): boolean {
+  if (resolveAuthMode(config) === "server") {
+    return false;
+  }
+  const mode = resolveBrowserPublicClientMode(config);
+  return mode === "strict" || config.browserRefreshTokenPolicy === "dpop_bound";
+}
+
+async function ensureBrowserDPoPPreflight(
+  crypto: BrowserCryptoProvider,
+  mode: BrowserPublicClientMode,
+  dpopTokenRequests: boolean,
+): Promise<void> {
+  if (!dpopTokenRequests) {
+    return;
+  }
+
+  const result = await crypto.preflightDPoPKeyPersistence("ES256");
+  if (result.ok) {
+    return;
+  }
+
+  const suffix = result.message ? `: ${result.message}` : "";
+  const reason = result.reason ?? "unknown";
+  if (mode === "cookie_fallback") {
+    throw new Error(
+      `Browser DPoP preflight failed (${reason})${suffix}; use the hosted cookie-only finalize path for this client.`,
+    );
+  }
+  throw new Error(`Browser DPoP preflight failed (${reason})${suffix}`);
 }

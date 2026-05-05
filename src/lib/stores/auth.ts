@@ -7,8 +7,8 @@
  * - loadingState は 'idle' が完全安定状態
  */
 
-import { writable, derived, type Readable, type Writable } from 'svelte/store';
-import type { Session, User, DirectAuthError } from '@authrim/core';
+import { writable, derived, type Readable, type Writable } from "svelte/store";
+import type { Session, User, DirectAuthError } from "@authrim/core";
 
 /**
  * ローディング状態
@@ -19,11 +19,11 @@ import type { Session, User, DirectAuthError } from '@authrim/core';
  * - エラー発生時も 'idle' に戻す（error !== null が唯一の異常判定）
  */
 export type AuthLoadingState =
-  | 'idle'
-  | 'initializing'
-  | 'authenticating'
-  | 'refreshing'
-  | 'signing_out';
+  | "idle"
+  | "initializing"
+  | "authenticating"
+  | "refreshing"
+  | "signing_out";
 
 /**
  * Auth Error (UI 向けに簡略化)
@@ -63,11 +63,14 @@ export function createAuthStores(): InternalAuthStores {
   // Internal writable stores
   const _session = writable<Session | null>(null);
   const _user = writable<User | null>(null);
-  const _loadingState = writable<AuthLoadingState>('idle');
+  const _loadingState = writable<AuthLoadingState>("idle");
   const _error = writable<AuthError | null>(null);
 
   // Derived stores
-  const isAuthenticated: Readable<boolean> = derived(_session, ($session) => $session !== null);
+  const isAuthenticated: Readable<boolean> = derived(
+    _session,
+    ($session) => $session !== null,
+  );
 
   // Public readable stores
   const publicStores: AuthStores = {
@@ -90,33 +93,35 @@ export function createAuthStores(): InternalAuthStores {
 /**
  * DirectAuthError から AuthError への変換
  */
-export function toAuthError(error: DirectAuthError | Error | unknown): AuthError {
+export function toAuthError(
+  error: DirectAuthError | Error | unknown,
+): AuthError {
   if (isDirectAuthError(error)) {
     return {
       code: error.code,
-      message: error.error_description || error.error || 'An error occurred',
+      message: error.error_description || error.error || "An error occurred",
       details: error.meta,
     };
   }
 
   if (error instanceof Error) {
     return {
-      code: 'UNKNOWN_ERROR',
+      code: "UNKNOWN_ERROR",
       message: error.message,
     };
   }
 
   return {
-    code: 'UNKNOWN_ERROR',
+    code: "UNKNOWN_ERROR",
     message: String(error),
   };
 }
 
 function isDirectAuthError(error: unknown): error is DirectAuthError {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    typeof (error as DirectAuthError).code === 'string'
+    "code" in error &&
+    typeof (error as DirectAuthError).code === "string"
   );
 }

@@ -52,16 +52,67 @@ export const auth = await createAuthrim({
 });
 ```
 
-### 2. Set Up Server Hooks
+By default, `@authrim/sveltekit` uses server-mediated auth: Direct Auth artifacts
+are redeemed by your SvelteKit server and OAuth/OIDC tokens are not returned to
+browser JavaScript.
+
+### 2. Set Up Server-Mediated Auth Endpoints
+
+```typescript
+// src/routes/authrim/session/exchange/+server.ts
+import { createDirectAuthSessionHandlers } from '@authrim/sveltekit/server';
+import { AUTHRIM_ISSUER, AUTHRIM_CLIENT_ID, AUTHRIM_SESSION_SECRET } from '$env/static/private';
+
+const handlers = createDirectAuthSessionHandlers({
+  issuer: AUTHRIM_ISSUER,
+  clientId: AUTHRIM_CLIENT_ID,
+  sessionSecret: AUTHRIM_SESSION_SECRET,
+});
+
+export const POST = handlers.exchange;
+```
+
+```typescript
+// src/routes/authrim/session/+server.ts
+import { createDirectAuthSessionHandlers } from '@authrim/sveltekit/server';
+import { AUTHRIM_ISSUER, AUTHRIM_CLIENT_ID, AUTHRIM_SESSION_SECRET } from '$env/static/private';
+
+const handlers = createDirectAuthSessionHandlers({
+  issuer: AUTHRIM_ISSUER,
+  clientId: AUTHRIM_CLIENT_ID,
+  sessionSecret: AUTHRIM_SESSION_SECRET,
+});
+
+export const GET = handlers.session;
+```
+
+```typescript
+// src/routes/authrim/session/logout/+server.ts
+import { createDirectAuthSessionHandlers } from '@authrim/sveltekit/server';
+import { AUTHRIM_ISSUER, AUTHRIM_CLIENT_ID, AUTHRIM_SESSION_SECRET } from '$env/static/private';
+
+const handlers = createDirectAuthSessionHandlers({
+  issuer: AUTHRIM_ISSUER,
+  clientId: AUTHRIM_CLIENT_ID,
+  sessionSecret: AUTHRIM_SESSION_SECRET,
+});
+
+export const POST = handlers.logout;
+```
+
+### 3. Set Up Server Hooks
 
 ```typescript
 // src/hooks.server.ts
 import { createAuthHandle } from '@authrim/sveltekit/server';
+import { AUTHRIM_SESSION_SECRET } from '$env/static/private';
 
-export const handle = createAuthHandle();
+export const handle = createAuthHandle({
+  sessionSecret: AUTHRIM_SESSION_SECRET,
+});
 ```
 
-### 3. Configure Type Safety
+### 4. Configure Type Safety
 
 ```typescript
 // src/app.d.ts
@@ -78,7 +129,7 @@ declare global {
 export {};
 ```
 
-### 4. Set Up AuthProvider
+### 5. Set Up AuthProvider
 
 ```svelte
 <!-- src/routes/+layout.svelte -->
@@ -105,7 +156,7 @@ import { createAuthLoad } from '@authrim/sveltekit/server';
 export const load = createAuthLoad();
 ```
 
-### 5. Use Authentication
+### 6. Use Authentication
 
 ```svelte
 <!-- src/routes/+page.svelte -->
@@ -147,6 +198,18 @@ const auth = await createAuthrim({
     storage: 'sessionStorage', // 'memory' | 'sessionStorage' | 'localStorage'
     prefix: 'authrim',
   },
+});
+```
+
+The default `authMode` is `'server'`. Set `authMode: 'browser'` only when this
+SvelteKit app intentionally uses browser-held OAuth/OIDC tokens.
+
+```typescript
+const auth = await createAuthrim({
+  issuer: 'https://auth.example.com',
+  clientId: 'your-client-id',
+  authMode: 'browser',
+  browserPublicClientMode: 'strict',
 });
 ```
 
@@ -415,8 +478,10 @@ Provides auth context to child components.
 ```typescript
 // src/hooks.server.ts
 import { createAuthHandle } from '@authrim/sveltekit/server';
+import { AUTHRIM_SESSION_SECRET } from '$env/static/private';
 
 export const handle = createAuthHandle({
+  sessionSecret: AUTHRIM_SESSION_SECRET,
   cookieName: 'authrim_session',
   secure: true,
   sameSite: 'lax',

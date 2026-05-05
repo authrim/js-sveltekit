@@ -27,6 +27,8 @@ export function createOAuthNamespace(
   coreClient: CoreClient,
   config: {
     silentLoginRedirectUri?: string;
+    preflightBrowserTokenPath?: () => Promise<void>;
+    browserTokenPathEnabled?: boolean;
   },
 ) {
   return {
@@ -190,7 +192,24 @@ export function createOAuthNamespace(
       // Success: Exchange code for tokens
       const code = params.get("code");
       if (code) {
+        if (config.browserTokenPathEnabled === false) {
+          const returnUrl = new URL(returnTo);
+          returnUrl.searchParams.set("sso_error", "server_mediated_auth_required");
+          returnUrl.searchParams.set(
+            "sso_error_description",
+            "Browser-held OAuth callback is disabled; handle the callback on the SvelteKit server or set authMode='browser'.",
+          );
+          window.location.href = returnUrl.toString();
+          return {
+            status: "error",
+            error: "server_mediated_auth_required",
+            errorDescription:
+              "Browser-held OAuth callback is disabled; handle the callback on the SvelteKit server or set authMode='browser'.",
+          };
+        }
+
         try {
+          await config.preflightBrowserTokenPath?.();
           await coreClient.handleCallback(window.location.href);
           // Clear sso_attempted flag on success
           if (typeof sessionStorage !== "undefined") {
@@ -223,9 +242,16 @@ export function createOAuthNamespace(
      * @returns Tokens from token exchange
      */
     async handleCallback(callbackUrl?: string) {
+      if (config.browserTokenPathEnabled === false) {
+        throw new Error(
+          "Browser-held OAuth callback is disabled; handle the callback on the SvelteKit server or set authMode='browser'.",
+        );
+      }
+
       const url =
         callbackUrl ??
         (typeof window !== "undefined" ? window.location.href : "");
+      await config.preflightBrowserTokenPath?.();
       return await coreClient.handleCallback(url);
     },
   };

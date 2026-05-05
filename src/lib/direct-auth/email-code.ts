@@ -26,14 +26,18 @@ import {
   type EmailCodeSendResponse,
   type EmailCodeVerifyRequest,
   type EmailCodeVerifyResponse,
-  type Session,
-  type User,
-} from '@authrim/core';
-import { getAuthrimCode, mapSeverity } from '../utils/error-mapping.js';
+} from "@authrim/core";
+import type {
+  AuthResultWithTokens,
+  DirectAuthArtifactResponse,
+  TokenOrSessionResult,
+} from "./protocol.js";
+import { requireDirectAuthArtifactResponse } from "./protocol.js";
+import { getAuthrimCode, mapSeverity } from "../utils/error-mapping.js";
 
 const ENDPOINTS = {
-  EMAIL_CODE_SEND: '/api/v1/auth/direct/email-code/send',
-  EMAIL_CODE_VERIFY: '/api/v1/auth/direct/email-code/verify',
+  EMAIL_CODE_SEND: "/api/v1/auth/direct/email-code/send",
+  EMAIL_CODE_VERIFY: "/api/v1/auth/direct/email-code/verify",
 };
 
 export interface EmailCodeAuthOptions {
@@ -42,12 +46,9 @@ export interface EmailCodeAuthOptions {
   http: HttpClient;
   crypto: CryptoProvider;
   exchangeToken: (
-    authCode: string,
-    codeVerifier: string
-  ) => Promise<{
-    session?: Session;
-    user?: User;
-  }>;
+    directAuthArtifact: string,
+    codeVerifier: string,
+  ) => Promise<TokenOrSessionResult>;
 }
 
 interface EmailCodeState {
@@ -64,7 +65,7 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
   private readonly clientId: string;
   private readonly http: HttpClient;
   private readonly pkce: PKCEHelper;
-  private readonly exchangeToken: EmailCodeAuthOptions['exchangeToken'];
+  private readonly exchangeToken: EmailCodeAuthOptions["exchangeToken"];
   private pendingVerifications: Map<string, EmailCodeState> = new Map();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -78,7 +79,7 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
   }
 
   private startCleanupTimer(): void {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
 
     this.cleanupTimer = setInterval(() => {
       this.pruneExpiredVerifications();
@@ -89,7 +90,7 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
     const now = Date.now();
     for (const [email, state] of this.pendingVerifications.entries()) {
       if (now > state.expiresAt) {
-        state.codeVerifier = '';
+        state.codeVerifier = "";
         this.pendingVerifications.delete(email);
       }
     }
@@ -109,50 +110,54 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
     this.stopCleanupTimer();
     // Clear all pending verifications and their codeVerifiers
     for (const state of this.pendingVerifications.values()) {
-      state.codeVerifier = '';
+      state.codeVerifier = "";
     }
     this.pendingVerifications.clear();
   }
 
-  async send(email: string, options?: EmailCodeSendOptions): Promise<EmailCodeSendResult> {
+  async send(
+    email: string,
+    options?: EmailCodeSendOptions,
+  ): Promise<EmailCodeSendResult> {
     if (!this.isValidEmail(email)) {
-      throw new AuthrimError('invalid_request', 'Invalid email address format');
+      throw new AuthrimError("invalid_request", "Invalid email address format");
     }
 
     const { codeVerifier, codeChallenge } = await this.pkce.generatePKCE();
 
-    const request: EmailCodeSendRequest = {
+    const request: EmailCodeSendRequest & { channel: "browser" } = {
       client_id: this.clientId,
       email,
       code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
+      code_challenge_method: "S256",
+      channel: "browser",
       locale: options?.locale,
     };
 
     const response = await this.http.fetch<EmailCodeSendResponse>(
       `${this.issuer}${ENDPOINTS.EMAIL_CODE_SEND}`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
-      }
+      },
     );
 
     if (!response.ok || !response.data) {
       if (response.status === 429) {
-        const retryAfter = response.headers?.['retry-after'];
+        const retryAfter = response.headers?.["retry-after"];
         throw new AuthrimError(
-          'email_code_too_many_attempts',
-          'Too many email code requests. Please wait before trying again.',
+          "email_code_too_many_attempts",
+          "Too many email code requests. Please wait before trying again.",
           {
             details: {
               retryAfter: retryAfter ? parseInt(retryAfter, 10) : 300,
             },
-          }
+          },
         );
       }
 
-      throw new AuthrimError('network_error', 'Failed to send email code');
+      throw new AuthrimError("network_error", "Failed to send email code");
     }
 
     const { attempt_id, expires_in, masked_email } = response.data;
@@ -174,16 +179,17 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
   async verify(
     email: string,
     code: string,
-    _options?: EmailCodeVerifyOptions
+    _options?: EmailCodeVerifyOptions,
   ): Promise<AuthResult> {
     if (!/^\d{6,8}$/.test(code)) {
       return {
         success: false,
         error: {
-          error: 'email_code_invalid',
-          error_description: 'Invalid code format. Please enter a 6-digit code.',
-          code: 'AR002001',
-          meta: { retryable: true, severity: 'warn' },
+          error: "email_code_invalid",
+          error_description:
+            "Invalid code format. Please enter a 6-digit code.",
+          code: "AR002001",
+          meta: { retryable: true, severity: "warn" },
         },
       };
     }
@@ -194,10 +200,11 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
       return {
         success: false,
         error: {
-          error: 'challenge_invalid',
-          error_description: 'No pending verification found. Please request a new code.',
-          code: 'AR002004',
-          meta: { retryable: false, severity: 'error' },
+          error: "challenge_invalid",
+          error_description:
+            "No pending verification found. Please request a new code.",
+          code: "AR002004",
+          meta: { retryable: false, severity: "error" },
         },
       };
     }
@@ -207,28 +214,30 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
       return {
         success: false,
         error: {
-          error: 'email_code_expired',
-          error_description: 'Verification code has expired. Please request a new code.',
-          code: 'AR002002',
-          meta: { retryable: false, severity: 'warn' },
+          error: "email_code_expired",
+          error_description:
+            "Verification code has expired. Please request a new code.",
+          code: "AR002002",
+          meta: { retryable: false, severity: "warn" },
         },
       };
     }
 
     try {
-      const request: EmailCodeVerifyRequest = {
+      const request: EmailCodeVerifyRequest & { channel: "browser" } = {
         attempt_id: state.attemptId,
         code,
         code_verifier: state.codeVerifier,
+        channel: "browser",
       };
 
-      const response = await this.http.fetch<EmailCodeVerifyResponse>(
+      const response = await this.http.fetch<EmailCodeVerifyResponse & DirectAuthArtifactResponse>(
         `${this.issuer}${ENDPOINTS.EMAIL_CODE_VERIFY}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(request),
-        }
+        },
       );
 
       if (!response.ok || !response.data) {
@@ -238,65 +247,73 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
             error_description?: string;
           };
 
-          if (errorData?.error === 'invalid_code') {
+          if (errorData?.error === "invalid_code") {
             return {
               success: false,
               error: {
-                error: 'email_code_invalid',
-                error_description: 'Invalid verification code. Please check and try again.',
-                code: 'AR002001',
-                meta: { retryable: true, severity: 'warn' },
+                error: "email_code_invalid",
+                error_description:
+                  "Invalid verification code. Please check and try again.",
+                code: "AR002001",
+                meta: { retryable: true, severity: "warn" },
               },
             };
           }
 
-          if (errorData?.error === 'code_expired') {
+          if (errorData?.error === "code_expired") {
             this.pendingVerifications.delete(email.toLowerCase());
             return {
               success: false,
               error: {
-                error: 'email_code_expired',
-                error_description: 'Verification code has expired.',
-                code: 'AR002002',
-                meta: { retryable: false, severity: 'warn' },
+                error: "email_code_expired",
+                error_description: "Verification code has expired.",
+                code: "AR002002",
+                meta: { retryable: false, severity: "warn" },
               },
             };
           }
 
-          if (errorData?.error === 'too_many_attempts') {
+          if (errorData?.error === "too_many_attempts") {
             this.pendingVerifications.delete(email.toLowerCase());
             return {
               success: false,
               error: {
-                error: 'email_code_too_many_attempts',
-                error_description: 'Too many incorrect attempts. Please request a new code.',
-                code: 'AR002003',
-                meta: { retryable: false, retry_after: 300, severity: 'error' },
+                error: "email_code_too_many_attempts",
+                error_description:
+                  "Too many incorrect attempts. Please request a new code.",
+                code: "AR002003",
+                meta: { retryable: false, retry_after: 300, severity: "error" },
               },
             };
           }
         }
 
-        throw new AuthrimError('network_error', 'Failed to verify email code');
+        throw new AuthrimError("network_error", "Failed to verify email code");
       }
 
       // Copy codeVerifier before clearing for security
       const codeVerifier = state.codeVerifier;
-      state.codeVerifier = ''; // Clear immediately before exchangeToken
+      state.codeVerifier = ""; // Clear immediately before exchangeToken
       this.pendingVerifications.delete(email.toLowerCase());
 
-      const { auth_code } = response.data;
-      const { session, user } = await this.exchangeToken(auth_code, codeVerifier);
+      const { direct_auth_artifact } = requireDirectAuthArtifactResponse(
+        response.data,
+      );
+      const { session, user, tokens } = await this.exchangeToken(
+        direct_auth_artifact,
+        codeVerifier,
+      );
 
       return {
         success: true,
         session,
         user,
-      };
+        tokens,
+      } as AuthResultWithTokens;
     } catch (error) {
       // Ensure codeVerifier is cleared on error (may already be cleared above)
       if (state && state.codeVerifier) {
-        state.codeVerifier = '';
+        state.codeVerifier = "";
       }
 
       if (error instanceof AuthrimError) {
@@ -305,7 +322,7 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
           error: {
             error: error.code,
             error_description: error.message,
-            code: getAuthrimCode(error.code, 'AR002000'),
+            code: getAuthrimCode(error.code, "AR002000"),
             meta: {
               retryable: error.meta.retryable,
               severity: mapSeverity(error.meta.severity),
@@ -317,10 +334,11 @@ export class EmailCodeAuthImpl implements EmailCodeAuth {
       return {
         success: false,
         error: {
-          error: 'network_error',
-          error_description: error instanceof Error ? error.message : 'Unknown error',
-          code: 'AR001001',
-          meta: { retryable: true, severity: 'error' },
+          error: "network_error",
+          error_description:
+            error instanceof Error ? error.message : "Unknown error",
+          code: "AR001001",
+          meta: { retryable: true, severity: "error" },
         },
       };
     }

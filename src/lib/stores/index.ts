@@ -5,4 +5,4 @@ export {
   type AuthError,
   type AuthStores,
   type InternalAuthStores,
-} from './auth.js';
+} from "./auth.js";

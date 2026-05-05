@@ -22,24 +22,32 @@ import {
   type PasskeySignupFinishRequest,
   type PasskeySignupFinishResponse,
   type AuthenticatorTransportType,
-  type Session,
-  type User,
-} from '@authrim/core';
-import { getAuthrimCode, mapSeverity } from '../utils/error-mapping.js';
+} from "@authrim/core";
+import type {
+  AuthResultWithTokens,
+  DirectAuthArtifactResponse,
+  TokenOrSessionResult,
+} from "./protocol.js";
+import { requireDirectAuthArtifactResponse } from "./protocol.js";
+import {
+  getAuthrimCode,
+  mapSeverity,
+  normalizePasskeyErrorCode,
+} from "../utils/error-mapping.js";
 import {
   convertToPublicKeyCredentialRequestOptions,
   convertToPublicKeyCredentialCreationOptions,
   assertionResponseToJSON,
   attestationResponseToJSON,
-} from '../utils/webauthn-converters.js';
+} from "../utils/webauthn-converters.js";
 
 const ENDPOINTS = {
-  PASSKEY_LOGIN_START: '/api/v1/auth/direct/passkey/login/start',
-  PASSKEY_LOGIN_FINISH: '/api/v1/auth/direct/passkey/login/finish',
-  PASSKEY_SIGNUP_START: '/api/v1/auth/direct/passkey/signup/start',
-  PASSKEY_SIGNUP_FINISH: '/api/v1/auth/direct/passkey/signup/finish',
-  PASSKEY_REGISTER_START: '/api/v1/auth/direct/passkey/register/start',
-  PASSKEY_REGISTER_FINISH: '/api/v1/auth/direct/passkey/register/finish',
+  PASSKEY_LOGIN_START: "/api/v1/auth/direct/passkey/login/start",
+  PASSKEY_LOGIN_FINISH: "/api/v1/auth/direct/passkey/login/finish",
+  PASSKEY_SIGNUP_START: "/api/v1/auth/direct/passkey/signup/start",
+  PASSKEY_SIGNUP_FINISH: "/api/v1/auth/direct/passkey/signup/finish",
+  PASSKEY_REGISTER_START: "/api/v1/auth/direct/passkey/register/start",
+  PASSKEY_REGISTER_FINISH: "/api/v1/auth/direct/passkey/register/finish",
 };
 
 export interface PasskeyAuthOptions {
@@ -48,12 +56,9 @@ export interface PasskeyAuthOptions {
   http: HttpClient;
   crypto: CryptoProvider;
   exchangeToken: (
-    authCode: string,
-    codeVerifier: string
-  ) => Promise<{
-    session?: Session;
-    user?: User;
-  }>;
+    directAuthArtifact: string,
+    codeVerifier: string,
+  ) => Promise<TokenOrSessionResult>;
 }
 
 export class PasskeyAuthImpl implements PasskeyAuth {
@@ -61,7 +66,7 @@ export class PasskeyAuthImpl implements PasskeyAuth {
   private readonly clientId: string;
   private readonly http: HttpClient;
   private readonly pkce: PKCEHelper;
-  private readonly exchangeToken: PasskeyAuthOptions['exchangeToken'];
+  private readonly exchangeToken: PasskeyAuthOptions["exchangeToken"];
   private conditionalAbortController: AbortController | null = null;
 
   constructor(options: PasskeyAuthOptions) {
@@ -74,9 +79,9 @@ export class PasskeyAuthImpl implements PasskeyAuth {
 
   isSupported(): boolean {
     return (
-      typeof window !== 'undefined' &&
-      typeof window.PublicKeyCredential !== 'undefined' &&
-      typeof navigator.credentials !== 'undefined'
+      typeof window !== "undefined" &&
+      typeof window.PublicKeyCredential !== "undefined" &&
+      typeof navigator.credentials !== "undefined"
     );
   }
 
@@ -84,7 +89,10 @@ export class PasskeyAuthImpl implements PasskeyAuth {
     if (!this.isSupported()) return false;
 
     try {
-      if (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {
+      if (
+        typeof PublicKeyCredential.isConditionalMediationAvailable ===
+        "function"
+      ) {
         return await PublicKeyCredential.isConditionalMediationAvailable();
       }
       return false;
@@ -98,50 +106,55 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       return {
         success: false,
         error: {
-          error: 'passkey_not_supported',
-          error_description: 'WebAuthn is not supported in this browser',
-          code: 'AR003003',
-          meta: { retryable: false, severity: 'warn' },
+          error: "passkey_not_supported",
+          error_description: "WebAuthn is not supported in this browser",
+          code: "AR003003",
+          meta: { retryable: false, severity: "warn" },
         },
       };
     }
 
-    let codeVerifier = '';
+    let codeVerifier = "";
 
     try {
       const pkce = await this.pkce.generatePKCE();
       codeVerifier = pkce.codeVerifier;
       const codeChallenge = pkce.codeChallenge;
 
-      const startRequest: PasskeyLoginStartRequest = {
+      const startRequest: PasskeyLoginStartRequest & { channel: "browser" } = {
         client_id: this.clientId,
         code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
+        code_challenge_method: "S256",
+        channel: "browser",
       };
 
       const startResponse = await this.http.fetch<PasskeyLoginStartResponse>(
         `${this.issuer}${ENDPOINTS.PASSKEY_LOGIN_START}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(startRequest),
-        }
+        },
       );
 
       if (!startResponse.ok || !startResponse.data) {
-        throw new AuthrimError('network_error', 'Failed to start passkey login');
+        throw new AuthrimError(
+          "network_error",
+          "Failed to start passkey login",
+        );
       }
 
       const { challenge_id, options: webauthnOptions } = startResponse.data;
-      const publicKeyOptions = convertToPublicKeyCredentialRequestOptions(webauthnOptions);
+      const publicKeyOptions =
+        convertToPublicKeyCredentialRequestOptions(webauthnOptions);
 
       const abortController = new AbortController();
       const abortHandler = () => abortController.abort();
       if (options?.signal) {
-        options.signal.addEventListener('abort', abortHandler, { once: true });
+        options.signal.addEventListener("abort", abortHandler, { once: true });
       }
 
-      if (options?.conditional || options?.mediation === 'conditional') {
+      if (options?.conditional || options?.mediation === "conditional") {
         // Cancel any existing conditional UI request before starting a new one
         // This prevents leaking the old AbortController
         if (this.conditionalAbortController) {
@@ -154,22 +167,24 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       try {
         credential = (await navigator.credentials.get({
           publicKey: publicKeyOptions,
-          mediation: options?.mediation || (options?.conditional ? 'conditional' : 'optional'),
+          mediation:
+            options?.mediation ||
+            (options?.conditional ? "conditional" : "optional"),
           signal: abortController.signal,
         })) as PublicKeyCredential;
       } catch (error) {
         if (error instanceof Error) {
-          if (error.name === 'AbortError' || error.name === 'NotAllowedError') {
+          if (error.name === "AbortError" || error.name === "NotAllowedError") {
             return {
               success: false,
               error: {
-                error: 'passkey_cancelled',
+                error: "passkey_user_canceled",
                 error_description:
-                  error.name === 'AbortError'
-                    ? 'Passkey authentication was cancelled'
-                    : 'User denied the passkey request',
-                code: 'AR003004',
-                meta: { retryable: false, severity: 'warn' },
+                  error.name === "AbortError"
+                    ? "Passkey authentication was cancelled"
+                    : "User denied the passkey request",
+                code: "AR003004",
+                meta: { retryable: false, severity: "warn" },
               },
             };
           }
@@ -178,7 +193,7 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       } finally {
         // Cleanup: remove abort handler and clear conditional controller
         if (options?.signal) {
-          options.signal.removeEventListener('abort', abortHandler);
+          options.signal.removeEventListener("abort", abortHandler);
         }
         if (options?.conditional) {
           this.conditionalAbortController = null;
@@ -189,51 +204,64 @@ export class PasskeyAuthImpl implements PasskeyAuth {
         return {
           success: false,
           error: {
-            error: 'passkey_not_found',
-            error_description: 'No passkey credential found',
-            code: 'AR003001',
-            meta: { retryable: false, severity: 'warn' },
+            error: "passkey_no_credential",
+            error_description: "No passkey credential found",
+            code: "AR003001",
+            meta: { retryable: false, severity: "warn" },
           },
         };
       }
 
       const credentialJSON = assertionResponseToJSON(credential);
 
-      const finishRequest: PasskeyLoginFinishRequest = {
+      const finishRequest: PasskeyLoginFinishRequest & { channel: "browser" } = {
         challenge_id,
         credential: credentialJSON,
         code_verifier: codeVerifier,
+        channel: "browser",
       };
 
-      const finishResponse = await this.http.fetch<PasskeyLoginFinishResponse>(
+      const finishResponse = await this.http.fetch<
+        PasskeyLoginFinishResponse & DirectAuthArtifactResponse
+      >(
         `${this.issuer}${ENDPOINTS.PASSKEY_LOGIN_FINISH}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(finishRequest),
-        }
+        },
       );
 
       if (!finishResponse.ok || !finishResponse.data) {
-        throw new AuthrimError('passkey_verification_failed', 'Failed to verify passkey');
+        throw new AuthrimError(
+          "passkey_invalid_credential",
+          "Failed to verify passkey",
+        );
       }
 
-      const { auth_code } = finishResponse.data;
-      const result = await this.exchangeToken(auth_code, codeVerifier);
+      const { direct_auth_artifact } = requireDirectAuthArtifactResponse(
+        finishResponse.data,
+      );
+      const result = await this.exchangeToken(
+        direct_auth_artifact,
+        codeVerifier,
+      );
 
       return {
         success: true,
         session: result.session,
         user: result.user,
-      };
+        tokens: result.tokens,
+      } as AuthResultWithTokens;
     } catch (error) {
       if (error instanceof AuthrimError) {
+        const errorCode = normalizePasskeyErrorCode(error.code);
         return {
           success: false,
           error: {
-            error: error.code,
+            error: errorCode,
             error_description: error.message,
-            code: getAuthrimCode(error.code, 'AR003000'),
+            code: getAuthrimCode(errorCode, "AR003000"),
             meta: {
               retryable: error.meta.retryable,
               severity: mapSeverity(error.meta.severity),
@@ -245,15 +273,16 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       return {
         success: false,
         error: {
-          error: 'passkey_verification_failed',
-          error_description: error instanceof Error ? error.message : 'Unknown error',
-          code: 'AR003002',
-          meta: { retryable: false, severity: 'error' },
+          error: "passkey_invalid_credential",
+          error_description:
+            error instanceof Error ? error.message : "Unknown error",
+          code: "AR003005",
+          meta: { retryable: false, severity: "error" },
         },
       };
     } finally {
       // Ensure codeVerifier is cleared regardless of success or failure
-      codeVerifier = '';
+      codeVerifier = "";
     }
   }
 
@@ -262,27 +291,28 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       return {
         success: false,
         error: {
-          error: 'passkey_not_supported',
-          error_description: 'WebAuthn is not supported in this browser',
-          code: 'AR003003',
-          meta: { retryable: false, severity: 'warn' },
+          error: "passkey_not_supported",
+          error_description: "WebAuthn is not supported in this browser",
+          code: "AR003003",
+          meta: { retryable: false, severity: "warn" },
         },
       };
     }
 
-    let codeVerifier = '';
+    let codeVerifier = "";
 
     try {
       const pkce = await this.pkce.generatePKCE();
       codeVerifier = pkce.codeVerifier;
       const codeChallenge = pkce.codeChallenge;
 
-      const startRequest: PasskeySignupStartRequest = {
+      const startRequest: PasskeySignupStartRequest & { channel: "browser" } = {
         client_id: this.clientId,
         email: options.email,
         display_name: options.displayName,
         code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
+        code_challenge_method: "S256",
+        channel: "browser",
         authenticator_type: options.authenticatorType,
         resident_key: options.residentKey,
         user_verification: options.userVerification,
@@ -291,23 +321,27 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       const startResponse = await this.http.fetch<PasskeySignupStartResponse>(
         `${this.issuer}${ENDPOINTS.PASSKEY_SIGNUP_START}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(startRequest),
-        }
+        },
       );
 
       if (!startResponse.ok || !startResponse.data) {
-        throw new AuthrimError('network_error', 'Failed to start passkey signup');
+        throw new AuthrimError(
+          "network_error",
+          "Failed to start passkey signup",
+        );
       }
 
       const { challenge_id, options: webauthnOptions } = startResponse.data;
-      const publicKeyOptions = convertToPublicKeyCredentialCreationOptions(webauthnOptions);
+      const publicKeyOptions =
+        convertToPublicKeyCredentialCreationOptions(webauthnOptions);
 
       const abortController = new AbortController();
       const abortHandler = () => abortController.abort();
       if (options.signal) {
-        options.signal.addEventListener('abort', abortHandler, { once: true });
+        options.signal.addEventListener("abort", abortHandler, { once: true });
       }
 
       let credential: PublicKeyCredential;
@@ -318,14 +352,14 @@ export class PasskeyAuthImpl implements PasskeyAuth {
         })) as PublicKeyCredential;
       } catch (error) {
         if (error instanceof Error) {
-          if (error.name === 'AbortError' || error.name === 'NotAllowedError') {
+          if (error.name === "AbortError" || error.name === "NotAllowedError") {
             return {
               success: false,
               error: {
-                error: 'passkey_cancelled',
-                error_description: 'Passkey registration was cancelled',
-                code: 'AR003004',
-                meta: { retryable: false, severity: 'warn' },
+                error: "passkey_user_canceled",
+                error_description: "Passkey registration was cancelled",
+                code: "AR003004",
+                meta: { retryable: false, severity: "warn" },
               },
             };
           }
@@ -334,7 +368,7 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       } finally {
         // Cleanup: remove abort handler
         if (options.signal) {
-          options.signal.removeEventListener('abort', abortHandler);
+          options.signal.removeEventListener("abort", abortHandler);
         }
       }
 
@@ -342,51 +376,64 @@ export class PasskeyAuthImpl implements PasskeyAuth {
         return {
           success: false,
           error: {
-            error: 'passkey_invalid_credential',
-            error_description: 'Failed to create passkey credential',
-            code: 'AR003005',
-            meta: { retryable: false, severity: 'error' },
+            error: "passkey_invalid_credential",
+            error_description: "Failed to create passkey credential",
+            code: "AR003005",
+            meta: { retryable: false, severity: "error" },
           },
         };
       }
 
       const credentialJSON = attestationResponseToJSON(credential);
 
-      const finishRequest: PasskeySignupFinishRequest = {
+      const finishRequest: PasskeySignupFinishRequest & { channel: "browser" } = {
         challenge_id,
         credential: credentialJSON,
         code_verifier: codeVerifier,
+        channel: "browser",
       };
 
-      const finishResponse = await this.http.fetch<PasskeySignupFinishResponse>(
+      const finishResponse = await this.http.fetch<
+        PasskeySignupFinishResponse & DirectAuthArtifactResponse
+      >(
         `${this.issuer}${ENDPOINTS.PASSKEY_SIGNUP_FINISH}`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(finishRequest),
-        }
+        },
       );
 
       if (!finishResponse.ok || !finishResponse.data) {
-        throw new AuthrimError('passkey_verification_failed', 'Failed to register passkey');
+        throw new AuthrimError(
+          "passkey_invalid_credential",
+          "Failed to register passkey",
+        );
       }
 
-      const { auth_code } = finishResponse.data;
-      const result = await this.exchangeToken(auth_code, codeVerifier);
+      const { direct_auth_artifact } = requireDirectAuthArtifactResponse(
+        finishResponse.data,
+      );
+      const result = await this.exchangeToken(
+        direct_auth_artifact,
+        codeVerifier,
+      );
 
       return {
         success: true,
         session: result.session,
         user: result.user,
-      };
+        tokens: result.tokens,
+      } as AuthResultWithTokens;
     } catch (error) {
       if (error instanceof AuthrimError) {
+        const errorCode = normalizePasskeyErrorCode(error.code);
         return {
           success: false,
           error: {
-            error: error.code,
+            error: errorCode,
             error_description: error.message,
-            code: getAuthrimCode(error.code, 'AR003000'),
+            code: getAuthrimCode(errorCode, "AR003000"),
             meta: {
               retryable: error.meta.retryable,
               severity: mapSeverity(error.meta.severity),
@@ -398,28 +445,32 @@ export class PasskeyAuthImpl implements PasskeyAuth {
       return {
         success: false,
         error: {
-          error: 'passkey_verification_failed',
-          error_description: error instanceof Error ? error.message : 'Unknown error',
-          code: 'AR003002',
-          meta: { retryable: false, severity: 'error' },
+          error: "passkey_invalid_credential",
+          error_description:
+            error instanceof Error ? error.message : "Unknown error",
+          code: "AR003005",
+          meta: { retryable: false, severity: "error" },
         },
       };
     } finally {
       // Ensure codeVerifier is cleared regardless of success or failure
-      codeVerifier = '';
+      codeVerifier = "";
     }
   }
 
   async register(options?: PasskeyRegisterOptions): Promise<PasskeyCredential> {
     if (!this.isSupported()) {
-      throw new AuthrimError('passkey_not_supported', 'WebAuthn is not supported in this browser');
+      throw new AuthrimError(
+        "passkey_not_supported",
+        "WebAuthn is not supported in this browser",
+      );
     }
 
     const startResponse = await this.http.fetch<PasskeySignupStartResponse>(
       `${this.issuer}${ENDPOINTS.PASSKEY_REGISTER_START}`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: this.clientId,
           display_name: options?.displayName,
@@ -427,20 +478,24 @@ export class PasskeyAuthImpl implements PasskeyAuth {
           resident_key: options?.residentKey,
           user_verification: options?.userVerification,
         }),
-      }
+      },
     );
 
     if (!startResponse.ok || !startResponse.data) {
-      throw new AuthrimError('network_error', 'Failed to start passkey registration');
+      throw new AuthrimError(
+        "network_error",
+        "Failed to start passkey registration",
+      );
     }
 
     const { challenge_id, options: webauthnOptions } = startResponse.data;
-    const publicKeyOptions = convertToPublicKeyCredentialCreationOptions(webauthnOptions);
+    const publicKeyOptions =
+      convertToPublicKeyCredentialCreationOptions(webauthnOptions);
 
     const abortController = new AbortController();
     const abortHandler = () => abortController.abort();
     if (options?.signal) {
-      options.signal.addEventListener('abort', abortHandler, { once: true });
+      options.signal.addEventListener("abort", abortHandler, { once: true });
     }
 
     let credential: PublicKeyCredential;
@@ -452,12 +507,15 @@ export class PasskeyAuthImpl implements PasskeyAuth {
     } finally {
       // Cleanup: remove abort handler
       if (options?.signal) {
-        options.signal.removeEventListener('abort', abortHandler);
+        options.signal.removeEventListener("abort", abortHandler);
       }
     }
 
     if (!credential) {
-      throw new AuthrimError('passkey_invalid_credential', 'Failed to create passkey credential');
+      throw new AuthrimError(
+        "passkey_invalid_credential",
+        "Failed to create passkey credential",
+      );
     }
 
     const credentialJSON = attestationResponseToJSON(credential);
@@ -465,12 +523,12 @@ export class PasskeyAuthImpl implements PasskeyAuth {
     const finishResponse = await this.http.fetch<{
       credential_id: string;
       public_key: string;
-      authenticator_type: 'platform' | 'cross-platform';
+      authenticator_type: "platform" | "cross-platform";
       transports?: AuthenticatorTransportType[];
       created_at: string;
     }>(`${this.issuer}${ENDPOINTS.PASSKEY_REGISTER_FINISH}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         challenge_id,
         credential: credentialJSON,
@@ -478,7 +536,10 @@ export class PasskeyAuthImpl implements PasskeyAuth {
     });
 
     if (!finishResponse.ok || !finishResponse.data) {
-      throw new AuthrimError('passkey_verification_failed', 'Failed to register passkey');
+      throw new AuthrimError(
+        "passkey_invalid_credential",
+        "Failed to register passkey",
+      );
     }
 
     return {

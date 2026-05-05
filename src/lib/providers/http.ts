@@ -5,8 +5,8 @@
  * P0: 機密データのログ出力をマスキング
  */
 
-import type { HttpClient, HttpOptions, HttpResponse } from '@authrim/core';
-import { sanitizeJsonForLogging } from '../utils/sensitive-data.js';
+import type { HttpClient, HttpOptions, HttpResponse } from "@authrim/core";
+import { sanitizeForLogging, sanitizeJsonForLogging } from "../utils/sensitive-data.js";
 
 export interface BrowserHttpClientOptions {
   /**
@@ -30,7 +30,7 @@ export class BrowserHttpClient implements HttpClient {
   private readonly debug: boolean;
 
   constructor(options?: BrowserHttpClientOptions) {
-    this.defaultCredentials = options?.credentials ?? 'omit';
+    this.defaultCredentials = options?.credentials ?? "omit";
     this.defaultTimeout = options?.timeout ?? 30000;
     this.debug = options?.debug ?? false;
   }
@@ -40,34 +40,39 @@ export class BrowserHttpClient implements HttpClient {
 
     if (data) {
       const sanitized =
-        typeof data === 'string' ? sanitizeJsonForLogging(data) : JSON.stringify(data);
+        typeof data === "string"
+          ? sanitizeJsonForLogging(data)
+          : JSON.stringify(sanitizeForLogging(data as Record<string, unknown>));
       console.debug(`[Authrim HTTP] ${message}`, sanitized);
     } else {
       console.debug(`[Authrim HTTP] ${message}`);
     }
   }
 
-  async fetch<T = unknown>(url: string, options?: BrowserHttpOptions): Promise<HttpResponse<T>> {
+  async fetch<T = unknown>(
+    url: string,
+    options?: BrowserHttpOptions,
+  ): Promise<HttpResponse<T>> {
     const controller = new AbortController();
     const timeout = options?.timeout ?? this.defaultTimeout;
 
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    this.debugLog(`${options?.method ?? 'GET'} ${url}`, options?.body);
+    this.debugLog(`${options?.method ?? "GET"} ${url}`, options?.body);
 
     try {
       const response = await globalThis.fetch(url, {
-        method: options?.method ?? 'GET',
+        method: options?.method ?? "GET",
         headers: options?.headers,
         body: options?.body,
         signal: options?.signal ?? controller.signal,
         credentials: options?.credentials ?? this.defaultCredentials,
       });
 
-      const contentType = response.headers.get('content-type') ?? '';
+      const contentType = response.headers.get("content-type") ?? "";
       let data: T;
 
-      if (contentType.includes('application/json')) {
+      if (contentType.includes("application/json")) {
         data = (await response.json()) as T;
       } else {
         data = (await response.text()) as T;
