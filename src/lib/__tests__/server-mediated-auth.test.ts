@@ -10,7 +10,7 @@ const session: Session = {
   id: "session-1",
   userId: "user-1",
   createdAt: "2026-05-06T00:00:00.000Z",
-  expiresAt: "2026-05-06T01:00:00.000Z",
+  expiresAt: "2099-05-06T01:00:00.000Z",
 };
 
 const user: User = {
@@ -184,7 +184,7 @@ describe("createDirectAuthSessionHandlers", () => {
     );
     expect(cookies.set).toHaveBeenCalledWith(
       "authrim_session",
-      expect.stringMatching(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u),
+      expect.stringMatching(/^v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u),
       expect.objectContaining({ httpOnly: true }),
     );
     const cookieValue = cookies.set.mock.calls[0][1] as string;
@@ -194,7 +194,7 @@ describe("createDirectAuthSessionHandlers", () => {
 });
 
 describe("createServerSessionManager", () => {
-  it("loads signed server session cookies", async () => {
+  it("loads encrypted server session cookies", async () => {
     let cookieValue = "";
     const sessionManager = createServerSessionManager({ sessionSecret });
     const writeEvent = {
@@ -222,6 +222,31 @@ describe("createServerSessionManager", () => {
       user,
     });
     expect(readEvent.cookies.delete).not.toHaveBeenCalled();
+  });
+
+  it("does not expose session payload in the cookie value", async () => {
+    let cookieValue = "";
+    const sessionManager = createServerSessionManager({ sessionSecret });
+    const writeEvent = {
+      cookies: {
+        set: vi.fn((_, value) => {
+          cookieValue = value as string;
+        }),
+        get: vi.fn(),
+        delete: vi.fn(),
+      },
+    } as unknown as RequestEvent;
+
+    await sessionManager.set(writeEvent, { session, user });
+
+    const [, encodedIv, encodedCiphertext] = cookieValue.split(".");
+    expect(encodedIv).toBeTruthy();
+    expect(encodedCiphertext).toBeTruthy();
+    expect(decodeBase64UrlToText(encodedIv)).not.toContain("user@example.com");
+    expect(decodeBase64UrlToText(encodedCiphertext)).not.toContain(
+      "user@example.com",
+    );
+    expect(decodeBase64UrlToText(encodedCiphertext)).not.toContain("session-1");
   });
 
   it("rejects tampered server session cookies", async () => {
@@ -274,4 +299,13 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function decodeBase64UrlToText(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  return new TextDecoder().decode(Buffer.from(padded, "base64"));
 }

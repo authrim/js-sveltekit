@@ -32,7 +32,7 @@ export interface ServerSessionManagerOptions {
   /** HttpOnly フラグ (default: true) */
   httpOnly?: boolean;
   /**
-   * Secret used to sign the server session cookie.
+   * Secret used to encrypt and authenticate the server session cookie.
    *
    * Required for setting or reading Authrim server sessions. Use at least
    * 32 bytes of high-entropy material and keep it server-side only.
@@ -51,8 +51,10 @@ export interface ServerSessionManager {
 
 const DEFAULT_COOKIE_NAME = "authrim_session";
 const DEFAULT_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
-const COOKIE_VALUE_VERSION = "v1";
+const ENCRYPTED_COOKIE_VALUE_VERSION = "v2";
+const SIGNED_COOKIE_VALUE_VERSION = "v1";
 const MIN_SECRET_BYTES = 32;
+const AES_GCM_IV_BYTES = 12;
 
 interface SignedSessionPayload {
   context: ServerAuthContext;
@@ -87,7 +89,7 @@ export function createServerSessionManager(
       }
 
       try {
-        const payload = await verifySignedSessionCookie(cookie, signingSecret);
+        const payload = await decodeSessionCookie(cookie, signingSecret);
         if (!payload || !isValidAuthContext(payload.context)) {
           event.cookies.delete(cookieName, { path });
           return null;
@@ -117,7 +119,7 @@ export function createServerSessionManager(
       }
 
       const now = Date.now();
-      const value = await signSessionCookie(
+      const value = await encryptSessionCookie(
         {
           context,
           iat: now,
@@ -140,26 +142,75 @@ export function createServerSessionManager(
   };
 }
 
-async function signSessionCookie(
+async function encryptSessionCookie(
   payload: SignedSessionPayload,
   secret: string | Uint8Array | CryptoKey,
 ): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_BYTES));
   const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
-  const encodedPayload = base64UrlEncode(payloadBytes);
-  const signature = await hmacSha256(encodedPayload, secret);
-  return `${COOKIE_VALUE_VERSION}.${encodedPayload}.${base64UrlEncode(signature)}`;
+  const key = await getAesGcmKey(secret);
+  const ciphertext = await getSubtleCrypto().encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    payloadBytes,
+  );
+  return `${ENCRYPTED_COOKIE_VALUE_VERSION}.${base64UrlEncode(iv)}.${base64UrlEncode(
+    new Uint8Array(ciphertext),
+  )}`;
 }
 
-async function verifySignedSessionCookie(
+async function decodeSessionCookie(
   cookie: string,
   secret: string | Uint8Array | CryptoKey,
 ): Promise<SignedSessionPayload | null> {
   const parts = cookie.split(".");
-  if (parts.length !== 3 || parts[0] !== COOKIE_VALUE_VERSION) {
+  if (parts.length !== 3) {
     return null;
   }
 
-  const [, encodedPayload, encodedSignature] = parts;
+  if (parts[0] === ENCRYPTED_COOKIE_VALUE_VERSION) {
+    return decryptSessionCookie(parts[1], parts[2], secret);
+  }
+  if (parts[0] === SIGNED_COOKIE_VALUE_VERSION) {
+    return verifySignedSessionCookie(parts[1], parts[2], secret);
+  }
+
+  return null;
+}
+
+async function decryptSessionCookie(
+  encodedIv: string,
+  encodedCiphertext: string,
+  secret: string | Uint8Array | CryptoKey,
+): Promise<SignedSessionPayload | null> {
+  if (!encodedIv || !encodedCiphertext) {
+    return null;
+  }
+
+  try {
+    const iv = Uint8Array.from(base64UrlDecode(encodedIv));
+    const ciphertext = Uint8Array.from(base64UrlDecode(encodedCiphertext));
+    if (iv.byteLength !== AES_GCM_IV_BYTES) {
+      return null;
+    }
+
+    const key = await getAesGcmKey(secret);
+    const plaintext = await getSubtleCrypto().decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext,
+    );
+    return parseSignedSessionPayload(new TextDecoder().decode(plaintext));
+  } catch {
+    return null;
+  }
+}
+
+async function verifySignedSessionCookie(
+  encodedPayload: string,
+  encodedSignature: string,
+  secret: string | Uint8Array | CryptoKey,
+): Promise<SignedSessionPayload | null> {
   if (!encodedPayload || !encodedSignature) {
     return null;
   }
@@ -170,7 +221,12 @@ async function verifySignedSessionCookie(
     return null;
   }
 
-  const payloadText = new TextDecoder().decode(base64UrlDecode(encodedPayload));
+  return parseSignedSessionPayload(
+    new TextDecoder().decode(base64UrlDecode(encodedPayload)),
+  );
+}
+
+function parseSignedSessionPayload(payloadText: string): SignedSessionPayload | null {
   const payload = JSON.parse(payloadText) as SignedSessionPayload;
   if (
     !payload ||
@@ -182,6 +238,25 @@ async function verifySignedSessionCookie(
   }
 
   return payload;
+}
+
+async function getAesGcmKey(secret: string | Uint8Array | CryptoKey): Promise<CryptoKey> {
+  if (isCryptoKey(secret)) {
+    if (secret.algorithm.name !== "AES-GCM") {
+      throw new Error("Authrim sessionSecret CryptoKey must use AES-GCM");
+    }
+    return secret;
+  }
+
+  const rawSecret = normalizeSecret(secret);
+  const derivedKey = await getSubtleCrypto().digest("SHA-256", rawSecret);
+  return getSubtleCrypto().importKey(
+    "raw",
+    derivedKey,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"],
+  );
 }
 
 async function hmacSha256(

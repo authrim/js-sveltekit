@@ -55,6 +55,8 @@ export const auth = await createAuthrim({
 By default, `@authrim/sveltekit` uses server-mediated auth: Direct Auth artifacts
 are redeemed by your SvelteKit server and OAuth/OIDC tokens are not returned to
 browser JavaScript.
+Server session cookies are HttpOnly and AES-GCM encrypted with
+`AUTHRIM_SESSION_SECRET`; use at least 32 bytes of high-entropy secret material.
 
 ### 2. Set Up Server-Mediated Auth Endpoints
 
@@ -578,7 +580,7 @@ import { createAuthStores } from '@authrim/sveltekit/stores';
 - **PKCE**: All OAuth flows use PKCE (Proof Key for Code Exchange)
 - **Secure Storage**: Session tokens are stored securely with configurable storage options
 - **CSRF Protection**: State parameter validation for OAuth flows
-- **HttpOnly Cookies**: Server-side session cookies are HttpOnly by default
+- **HttpOnly Cookies**: Server-side session cookies are HttpOnly and encrypted by default
 
 ## License
 
