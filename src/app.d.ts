@@ -3,7 +3,7 @@
 declare global {
   namespace App {
     interface Locals {
-      auth?: import('./lib/server/session').ServerAuthContext;
+      auth?: import("./lib/server/session").ServerAuthContext;
     }
     // interface Error {}
     // interface PageData {}

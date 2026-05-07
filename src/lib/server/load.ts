@@ -15,9 +15,9 @@
  * ```
  */
 
-import { redirect } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import type { ServerAuthContext } from './session.js';
+import { redirect } from "@sveltejs/kit";
+import type { RequestEvent } from "@sveltejs/kit";
+import type { ServerAuthContext } from "./session.js";
 
 export interface AuthLoadOptions {
   /**
@@ -44,8 +44,8 @@ export interface AuthLoadOptions {
  * ```
  */
 export function requireAuth(options?: AuthLoadOptions) {
-  const loginUrl = options?.loginUrl ?? '/login';
-  const redirectParam = options?.redirectParam ?? 'redirectTo';
+  const loginUrl = options?.loginUrl ?? "/login";
+  const redirectParam = options?.redirectParam ?? "redirectTo";
 
   return async ({ locals, url }: RequestEvent) => {
     const auth = locals.auth as ServerAuthContext | undefined;

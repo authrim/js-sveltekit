@@ -17,7 +17,24 @@ import type {
   SocialLoginOptions,
   DirectAuthLogoutOptions,
   NextAction,
+  StepUpActionResponse,
+  StepUpCompleteRequest,
+  StepUpIdempotentRequestOptions,
+  StepUpRequestOptions,
+  StepUpStartRequest,
+  CustomerProfileDelegatedWriteOptions,
+  CustomerProfileDelegatedWriteResponse,
+  CustomerProfileElevationReadOptions,
+  CustomerProfileElevationReadResponse,
+  CustomerProfileUpdateInput,
+  ListDevicesOptions,
+  ListDevicesResponse,
+  RenameDeviceOptions,
+  RenameDeviceResponse,
+  UnlinkDeviceOptions,
+  UnlinkDeviceResponse,
 } from "@authrim/core";
+import type { DirectAuthTokenResponsePhase1 } from "./direct-auth/protocol.js";
 import type {
   AuthLoadingState,
   AuthError as StoreAuthError,
@@ -28,16 +45,74 @@ import type {
 // =============================================================================
 
 export type StorageType = "memory" | "sessionStorage" | "localStorage";
+export type SvelteKitAuthMode = "server" | "browser";
 
 export interface StorageOptions {
   prefix?: string;
+  /** Storage type. Default: 'memory'. Web Storage persistence is explicit opt-in. */
   storage?: StorageType;
+}
+
+export interface ServerMediatedSessionOptions {
+  /**
+   * Same-origin endpoint that redeems Direct Auth artifacts on the SvelteKit
+   * server and sets an HttpOnly application session cookie.
+   *
+   * Default: '/authrim/session/exchange'
+   */
+  exchangeEndpoint?: string;
+  /**
+   * Same-origin endpoint that returns the current cookie-backed session.
+   *
+   * Default: '/authrim/session'
+   */
+  sessionEndpoint?: string;
+  /**
+   * Same-origin endpoint that clears the cookie-backed session.
+   *
+   * Default: '/authrim/session/logout'
+   */
+  logoutEndpoint?: string;
+  /**
+   * Whether AuthProvider may fetch the cookie-backed session in the browser
+   * when no SSR session was provided. Default: false.
+   */
+  checkOnMount?: boolean;
+  /**
+   * Credentials mode for same-origin server-mediated session requests.
+   * Default: 'same-origin'.
+   */
+  credentials?: RequestCredentials;
 }
 
 export interface AuthrimConfig {
   issuer: string;
   clientId: string;
+  /**
+   * SvelteKit token handling mode.
+   *
+   * Default: 'server'. The SDK redeems Direct Auth artifacts through
+   * same-origin server endpoints and keeps OAuth/OIDC tokens out of browser JS.
+   * Set 'browser' explicitly to use browser-held OAuth/OIDC tokens.
+   */
+  authMode?: SvelteKitAuthMode;
+  /** Server-mediated cookie session endpoints used when authMode is 'server'. */
+  serverSession?: ServerMediatedSessionOptions;
   storage?: StorageOptions;
+  /**
+   * Browser public client security mode.
+   *
+   * Custom browser SDK clients default to 'strict'. Hosted/built-in flows may
+   * select 'cookie_fallback' at the integration boundary.
+   */
+  browserPublicClientMode?: "strict" | "cookie_fallback" | "legacy";
+  /**
+   * Browser refresh token issuance policy.
+   *
+   * Default: 'disabled'. Use 'dpop_bound' only when the browser can keep a
+   * stable non-extractable DPoP key for this issuer + client_id.
+   */
+  browserRefreshTokenPolicy?: "disabled" | "dpop_bound";
   /**
    * Enable OAuth 2.0 / OpenID Connect flows
    * Default: false
@@ -68,8 +143,9 @@ export type AuthResponse<T> =
   | { data: null; error: AuthError };
 
 export interface AuthSessionData {
-  session: Session;
-  user: User;
+  session?: Session;
+  user?: User;
+  tokens?: DirectAuthTokenResponsePhase1;
   nextAction?: NextAction;
   /** Validated redirect path from social login state (relative path only) */
   redirectTo?: string;
@@ -315,6 +391,12 @@ export interface AuthrimClient {
   ciba: CIBANamespace;
   /** Login challenge API */
   loginChallenge: LoginChallengeNamespace;
+  /** Canonical Step-Up API */
+  stepUp: StepUpNamespace;
+  /** Customer profile product protected resource API */
+  customerProfiles: CustomerProfilesNamespace;
+  /** Self-service device inventory API */
+  devices: DevicesNamespace;
 
   signIn: SignInShortcuts;
   signUp: SignUpShortcuts;
@@ -339,6 +421,14 @@ export interface AuthrimClient {
   _syncFromSSR(session: Session | null, user: User | null): void;
 
   /**
+   * Whether AuthProvider should fetch session state from the browser after
+   * hydration. Server-mediated mode defaults to SSR/cookie state only.
+   *
+   * @internal Used by AuthProvider.
+   */
+  _shouldFetchSessionOnMount(): boolean;
+
+  /**
    * Cleanup resources (event listeners, timers, etc.)
    * Should be called when the auth client is no longer needed.
    *
@@ -347,6 +437,74 @@ export interface AuthrimClient {
    * memory leaks from event listeners and timers.
    */
   destroy(): void;
+}
+
+export interface StepUpNamespace {
+  start(
+    request: StepUpStartRequest,
+    options?: StepUpRequestOptions,
+  ): Promise<StepUpActionResponse>;
+  getAction(
+    actionId: string,
+    options?: StepUpRequestOptions,
+  ): Promise<StepUpActionResponse>;
+  complete<Input = unknown>(
+    actionId: string,
+    request: StepUpCompleteRequest<Input>,
+    options?: StepUpIdempotentRequestOptions,
+  ): Promise<StepUpActionResponse>;
+  resend(
+    actionId: string,
+    options?: StepUpIdempotentRequestOptions,
+  ): Promise<StepUpActionResponse>;
+  cancel(
+    actionId: string,
+    options?: StepUpRequestOptions,
+  ): Promise<StepUpActionResponse>;
+}
+
+export interface CustomerProfilesNamespace {
+  getWithElevationGrant(
+    subjectUserId: string,
+    options: CustomerProfileElevationReadOptions,
+  ): Promise<CustomerProfileElevationReadResponse>;
+  updateDelegated(
+    subjectUserId: string,
+    input: CustomerProfileUpdateInput,
+    options: CustomerProfileDelegatedWriteOptions,
+  ): Promise<CustomerProfileDelegatedWriteResponse>;
+}
+
+export type BrowserListDevicesOptions = Omit<
+  ListDevicesOptions,
+  "accessToken"
+> & {
+  accessToken?: string;
+};
+export type BrowserRenameDeviceOptions = Omit<
+  RenameDeviceOptions,
+  "accessToken"
+> & {
+  accessToken?: string;
+};
+export type BrowserUnlinkDeviceOptions = Omit<
+  UnlinkDeviceOptions,
+  "accessToken"
+> & {
+  accessToken?: string;
+};
+
+export interface DevicesNamespace {
+  list(options?: BrowserListDevicesOptions): Promise<ListDevicesResponse>;
+  rename(
+    deviceId: string,
+    displayName: string,
+    options?: BrowserRenameDeviceOptions,
+  ): Promise<RenameDeviceResponse>;
+  unlink(
+    deviceId: string,
+    options?: BrowserUnlinkDeviceOptions,
+  ): Promise<UnlinkDeviceResponse>;
 }
 
 // =============================================================================
@@ -365,8 +523,30 @@ export type {
   EmailCodeSendResult,
   EmailCodeVerifyOptions,
   SocialLoginOptions,
+  DirectAuthLogoutScope,
   DirectAuthLogoutOptions,
   NextAction,
+  StepUpAcceptableMethods,
+  StepUpActionResponse,
+  StepUpCompleteRequest,
+  StepUpFailureBody,
+  StepUpIdempotentRequestOptions,
+  StepUpNextAction,
+  StepUpRequestOptions,
+  StepUpRequirement,
+  StepUpResendResponse,
+  StepUpStartRequest,
+  CustomerProfileDelegatedWriteOptions,
+  CustomerProfileDelegatedWriteResponse,
+  CustomerProfileElevationReadOptions,
+  CustomerProfileElevationReadResponse,
+  CustomerProfileUpdateInput,
+  CustomerProfileView,
+  DeviceInventoryItem,
+  DeviceUnlinkResult,
+  ListDevicesResponse,
+  RenameDeviceResponse,
+  UnlinkDeviceResponse,
 } from "@authrim/core";
 
 export type { AuthLoadingState } from "./stores/auth.js";

@@ -7,42 +7,41 @@ import {
   type SessionAuth,
   type Session,
   type DirectAuthLogoutOptions,
-  type DirectAuthTokenRequest,
-  type DirectAuthTokenResponse,
   type User,
-} from '@authrim/core';
-import type { BrowserHttpClient } from '../providers/http.js';
+} from "@authrim/core";
+import type { BrowserHttpClient } from "../providers/http.js";
+import type {
+  DirectAuthTokenRequestPhase1,
+  DirectAuthTokenResponsePhase1,
+  TokenOrSessionResult,
+} from "./protocol.js";
 
 const ENDPOINTS = {
-  TOKEN: '/api/v1/auth/direct/token',
-  SESSION: '/api/v1/auth/direct/session',
-  LOGOUT: '/api/v1/auth/direct/logout',
+  TOKEN: "/token",
+  SESSION: "/api/v1/auth/direct/session",
+  LOGOUT: "/api/v1/auth/direct/logout",
 };
-
-const STORAGE_KEY_PREFIX = 'authrim_session';
 
 export interface SessionManagerOptions {
   issuer: string;
   clientId: string;
   http: BrowserHttpClient;
-}
-
-function getStorageKey(issuer: string, clientId: string): string {
-  const key = `${issuer}:${clientId}`;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    const char = key.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return `${STORAGE_KEY_PREFIX}_${Math.abs(hash).toString(36)}`;
+  mode: "server" | "browser";
+  serverSession?: {
+    exchangeEndpoint: string;
+    sessionEndpoint: string;
+    logoutEndpoint: string;
+    credentials: RequestCredentials;
+  };
 }
 
 export class SessionAuthImpl implements SessionAuth {
   private readonly issuer: string;
   private readonly clientId: string;
   private readonly http: BrowserHttpClient;
-  private readonly storageKey: string;
+  private readonly mode: "server" | "browser";
+  private readonly serverSession?: NonNullable<SessionManagerOptions["serverSession"]>;
+  private memoryToken: string | null = null;
   private cachedSession: Session | null = null;
   private cachedUser: User | null = null;
   private sessionCacheExpiry: number = 0;
@@ -52,39 +51,29 @@ export class SessionAuthImpl implements SessionAuth {
     this.issuer = options.issuer;
     this.clientId = options.clientId;
     this.http = options.http;
-    this.storageKey = getStorageKey(options.issuer, options.clientId);
+    this.mode = options.mode;
+    this.serverSession = options.serverSession;
   }
 
   private getStoredToken(): string | null {
-    if (typeof localStorage === 'undefined') return null;
-    try {
-      return localStorage.getItem(this.storageKey);
-    } catch {
-      return null;
-    }
+    return this.memoryToken;
   }
 
   private storeToken(token: string): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.setItem(this.storageKey, token);
-    } catch {
-      console.warn('[Authrim] Failed to store token in localStorage');
-    }
+    this.memoryToken = token;
   }
 
   private removeStoredToken(): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.removeItem(this.storageKey);
-    } catch {
-      // localStorage not available
-    }
+    this.memoryToken = null;
   }
 
   async get(): Promise<Session | null> {
     if (this.cachedSession && Date.now() < this.sessionCacheExpiry) {
       return this.cachedSession;
+    }
+
+    if (this.mode === "server") {
+      return this.getServerMediatedSession();
     }
 
     const token = this.getStoredToken();
@@ -98,13 +87,13 @@ export class SessionAuthImpl implements SessionAuth {
         session: Session;
         user: User;
       }>(`${this.issuer}${ENDPOINTS.SESSION}`, {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (!response.ok || !response.data) {
+      if (!response.ok || !response.data?.session) {
         if (response.status === 401) {
           this.removeStoredToken();
         }
@@ -145,6 +134,11 @@ export class SessionAuthImpl implements SessionAuth {
   }
 
   async logout(options?: DirectAuthLogoutOptions): Promise<void> {
+    if (this.mode === "server") {
+      await this.logoutServerMediated(options);
+      return;
+    }
+
     const token = this.getStoredToken();
 
     if (token) {
@@ -152,6 +146,7 @@ export class SessionAuthImpl implements SessionAuth {
         const requestBody: {
           client_id: string;
           revoke_tokens?: boolean;
+          logout_scope?: DirectAuthLogoutOptions["logoutScope"];
         } = {
           client_id: this.clientId,
         };
@@ -159,52 +154,76 @@ export class SessionAuthImpl implements SessionAuth {
         if (options?.revokeTokens !== undefined) {
           requestBody.revoke_tokens = options.revokeTokens;
         }
+        if (options?.logoutScope) {
+          requestBody.logout_scope = options.logoutScope;
+        }
 
         await this.http.fetch(`${this.issuer}${ENDPOINTS.LOGOUT}`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify(requestBody),
         });
-      } catch (error) {
-        console.warn('Logout request failed:', error);
+      } catch {
+        // Logout should still clear client-side state when server notification fails.
       }
     }
 
     this.removeStoredToken();
     this.clearCache();
 
-    if (options?.redirectUri && typeof window !== 'undefined') {
+    if (options?.redirectUri && typeof window !== "undefined") {
       window.location.href = options.redirectUri;
     }
   }
 
   async exchangeToken(
-    authCode: string,
+    directAuthArtifact: string,
     codeVerifier: string,
     requestRefreshToken?: boolean,
-    providerId?: string
-  ): Promise<{ session?: Session; user?: User }> {
-    const request: DirectAuthTokenRequest = {
-      grant_type: 'authorization_code',
-      code: authCode,
+    providerId?: string,
+  ): Promise<TokenOrSessionResult> {
+    if (this.mode === "server") {
+      return this.exchangeTokenServerMediated(
+        directAuthArtifact,
+        codeVerifier,
+        providerId,
+      );
+    }
+
+    const request: DirectAuthTokenRequestPhase1 = {
+      grant_type: "urn:authrim:params:oauth:grant-type:direct-auth-finish",
+      direct_auth_artifact: directAuthArtifact,
       client_id: this.clientId,
       code_verifier: codeVerifier,
-      request_refresh_token: requestRefreshToken,
+      channel: "browser",
     };
     if (providerId) {
       request.provider_id = providerId;
     }
 
-    const response = await this.http.fetch<DirectAuthTokenResponse>(
+    const body = new URLSearchParams();
+    body.set("grant_type", request.grant_type);
+    body.set("direct_auth_artifact", request.direct_auth_artifact);
+    body.set("client_id", request.client_id);
+    body.set("code_verifier", request.code_verifier);
+    body.set("channel", request.channel);
+    if (request.provider_id) {
+      body.set("provider_id", request.provider_id);
+    }
+    if (requestRefreshToken) {
+      body.set("resource", this.clientId);
+    }
+
+    const response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
       `${this.issuer}${ENDPOINTS.TOKEN}`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
-      }
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      },
     );
 
     if (!response.ok || !response.data) {
@@ -214,22 +233,25 @@ export class SessionAuthImpl implements SessionAuth {
           error_description?: string;
         };
 
-        if (errorData?.error === 'invalid_grant') {
+        if (errorData?.error === "invalid_grant") {
           throw new AuthrimError(
-            'auth_code_invalid',
-            errorData.error_description || 'Invalid authorization code'
+            "auth_code_invalid",
+            errorData.error_description || "Invalid authorization code",
           );
         }
 
-        if (errorData?.error === 'expired_token') {
+        if (errorData?.error === "expired_token") {
           throw new AuthrimError(
-            'auth_code_expired',
-            errorData.error_description || 'Authorization code has expired'
+            "auth_code_expired",
+            errorData.error_description || "Authorization code has expired",
           );
         }
       }
 
-      throw new AuthrimError('token_error', 'Failed to exchange authorization code for tokens');
+      throw new AuthrimError(
+        "token_error",
+        "Failed to exchange authorization code for tokens",
+      );
     }
 
     const tokenResponse = response.data;
@@ -238,18 +260,8 @@ export class SessionAuthImpl implements SessionAuth {
       this.storeToken(tokenResponse.access_token);
     }
 
-    if (tokenResponse.session) {
-      this.cachedSession = tokenResponse.session;
-      this.sessionCacheExpiry = Date.now() + this.SESSION_CACHE_TTL;
-    }
-
-    if (tokenResponse.user) {
-      this.cachedUser = tokenResponse.user;
-    }
-
     return {
-      session: tokenResponse.session,
-      user: tokenResponse.user,
+      tokens: tokenResponse,
     };
   }
 
@@ -286,6 +298,110 @@ export class SessionAuthImpl implements SessionAuth {
   }
 
   getToken(): string | null {
+    if (this.mode === "server") {
+      return null;
+    }
     return this.getStoredToken();
+  }
+
+  private async getServerMediatedSession(): Promise<Session | null> {
+    if (!this.serverSession) {
+      this.clearCache();
+      return null;
+    }
+
+    try {
+      const response = await this.http.fetch<{
+        session: Session;
+        user: User;
+      }>(this.serverSession.sessionEndpoint, {
+        method: "GET",
+        credentials: this.serverSession.credentials,
+      });
+
+      if (!response.ok || !response.data?.session || !response.data.user) {
+        this.clearCache();
+        return null;
+      }
+
+      this.cachedSession = response.data.session;
+      this.cachedUser = response.data.user;
+      this.sessionCacheExpiry = Date.now() + this.SESSION_CACHE_TTL;
+
+      return response.data.session;
+    } catch {
+      this.clearCache();
+      return null;
+    }
+  }
+
+  private async logoutServerMediated(
+    options?: DirectAuthLogoutOptions,
+  ): Promise<void> {
+    if (this.serverSession) {
+      try {
+        await this.http.fetch(this.serverSession.logoutEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revoke_tokens: options?.revokeTokens,
+            logout_scope: options?.logoutScope,
+          }),
+          credentials: this.serverSession.credentials,
+        });
+      } catch {
+        // Logout should still clear client-side state when server notification fails.
+      }
+    }
+
+    this.removeStoredToken();
+    this.clearCache();
+
+    if (options?.redirectUri && typeof window !== "undefined") {
+      window.location.href = options.redirectUri;
+    }
+  }
+
+  private async exchangeTokenServerMediated(
+    directAuthArtifact: string,
+    codeVerifier: string,
+    providerId?: string,
+  ): Promise<TokenOrSessionResult> {
+    if (!this.serverSession) {
+      throw new AuthrimError(
+        "token_error",
+        "Server-mediated auth requires serverSession endpoints",
+      );
+    }
+
+    const response = await this.http.fetch<{
+      session: Session;
+      user: User;
+    }>(this.serverSession.exchangeEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        direct_auth_artifact: directAuthArtifact,
+        code_verifier: codeVerifier,
+        provider_id: providerId,
+      }),
+      credentials: this.serverSession.credentials,
+    });
+
+    if (!response.ok || !response.data?.session || !response.data.user) {
+      throw new AuthrimError(
+        "token_error",
+        "Failed to establish server-mediated session",
+      );
+    }
+
+    this.cachedSession = response.data.session;
+    this.cachedUser = response.data.user;
+    this.sessionCacheExpiry = Date.now() + this.SESSION_CACHE_TTL;
+
+    return {
+      session: response.data.session,
+      user: response.data.user,
+    };
   }
 }

@@ -3,14 +3,14 @@ export {
   type ServerSessionManager,
   type ServerSessionManagerOptions,
   type ServerAuthContext,
-} from './session.js';
+} from "./session.js";
 
 export {
   createAuthHandle,
   getServerSessionManager,
   getAuthFromEvent,
   type AuthHandleOptions,
-} from './handle.js';
+} from "./handle.js";
 
 export {
   requireAuth,
@@ -19,10 +19,16 @@ export {
   getUser,
   getSession,
   type AuthLoadOptions,
-} from './load.js';
+} from "./load.js";
 
 export {
   verifyHandoffToken,
   createHandoffHandler,
   type HandoffVerifyOptions,
-} from './handoff.js';
+} from "./handoff.js";
+
+export {
+  createDirectAuthSessionHandlers,
+  type DirectAuthSessionHandlers,
+  type DirectAuthSessionHandlersOptions,
+} from "./direct-auth.js";

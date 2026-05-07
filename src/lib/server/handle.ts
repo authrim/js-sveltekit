@@ -2,13 +2,13 @@
  * SvelteKit Handle Hook for Authentication
  */
 
-import type { Handle, RequestEvent } from '@sveltejs/kit';
+import type { Handle, RequestEvent } from "@sveltejs/kit";
 import {
   createServerSessionManager,
   type ServerSessionManager,
   type ServerSessionManagerOptions,
   type ServerAuthContext,
-} from './session.js';
+} from "./session.js";
 
 export interface AuthHandleOptions extends ServerSessionManagerOptions {
   /**
@@ -31,7 +31,7 @@ export interface AuthHandleOptions extends ServerSessionManagerOptions {
  */
 export function createAuthHandle(options?: AuthHandleOptions): Handle {
   const sessionManager = createServerSessionManager(options);
-  const callbackPaths = options?.callbackPaths ?? ['/auth/callback'];
+  const callbackPaths = options?.callbackPaths ?? ["/auth/callback"];
 
   return async ({ event, resolve }) => {
     // Load session into locals
@@ -58,7 +58,7 @@ function isCallbackPath(pathname: string, callbackPaths: string[]): boolean {
  * Get session manager for use in server-side code
  */
 export function getServerSessionManager(
-  options?: ServerSessionManagerOptions
+  options?: ServerSessionManagerOptions,
 ): ServerSessionManager {
   return createServerSessionManager(options);
 }
@@ -79,6 +79,8 @@ export function getServerSessionManager(
  * }
  * ```
  */
-export function getAuthFromEvent(event: RequestEvent): ServerAuthContext | null {
+export function getAuthFromEvent(
+  event: RequestEvent,
+): ServerAuthContext | null {
   return (event.locals.auth as ServerAuthContext | undefined) ?? null;
 }

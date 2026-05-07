@@ -49,7 +49,7 @@
         throw new Error('Invalid method or missing provider');
       }
 
-      if (result.data) {
+      if (result.data?.session && result.data?.user) {
         dispatch('success', {
           session: result.data.session,
           user: result.data.user,

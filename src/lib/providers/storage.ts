@@ -1,23 +1,23 @@
 /**
  * Browser Storage Provider
  *
- * P2: デフォルトは sessionStorage (XSS耐性優先)
- * localStorage は明示的 opt-in のみ
+ * Phase 1: default is memory-only.
+ * Web Storage persistence is explicit opt-in only.
  */
 
-import type { AuthrimStorage } from '@authrim/core';
+import type { AuthrimStorage } from "@authrim/core";
 
 export interface BrowserStorageOptions {
   /** Storage key prefix (default: 'authrim') */
   prefix?: string;
   /**
-   * Storage type (default: 'sessionStorage')
+   * Storage type (default: 'memory')
    *
    * - 'memory': 最も安全。タブを閉じると消える。SPA推奨。
    * - 'sessionStorage': ページリロードで維持、タブを閉じると消える。
    * - 'localStorage': 永続化。XSS脆弱性あり、明示的 opt-in のみ。
    */
-  storage?: 'memory' | 'sessionStorage' | 'localStorage';
+  storage?: "memory" | "sessionStorage" | "localStorage";
 }
 
 class MemoryStorage implements AuthrimStorage {
@@ -47,7 +47,7 @@ class MemoryStorage implements AuthrimStorage {
 class WebStorage implements AuthrimStorage {
   constructor(
     private readonly storage: Storage,
-    private readonly prefix: string
+    private readonly prefix: string,
   ) {}
 
   private key(key: string): string {
@@ -99,19 +99,22 @@ class WebStorage implements AuthrimStorage {
   }
 }
 
-export function createBrowserStorage(options?: BrowserStorageOptions): AuthrimStorage {
-  const storageType = options?.storage ?? 'sessionStorage';
-  const prefix = options?.prefix ?? 'authrim';
+export function createBrowserStorage(
+  options?: BrowserStorageOptions,
+): AuthrimStorage {
+  const storageType = options?.storage ?? "memory";
+  const prefix = options?.prefix ?? "authrim";
 
-  if (storageType === 'memory') {
+  if (storageType === "memory") {
     return new MemoryStorage();
   }
 
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     // SSR: use memory storage
     return new MemoryStorage();
   }
 
-  const storage = storageType === 'localStorage' ? localStorage : sessionStorage;
+  const storage =
+    storageType === "localStorage" ? localStorage : sessionStorage;
   return new WebStorage(storage, prefix);
 }

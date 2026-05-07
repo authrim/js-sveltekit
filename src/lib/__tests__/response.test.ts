@@ -1,16 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from "vitest";
 import {
   success,
   failure,
   failureFromParams,
   toAuthError,
   authResultToResponse,
-} from '../utils/response.js';
+} from "../utils/response.js";
 
-describe('response utilities', () => {
-  describe('success', () => {
-    it('should create success response', () => {
-      const data = { id: 1, name: 'Test' };
+describe("response utilities", () => {
+  describe("success", () => {
+    it("should create success response", () => {
+      const data = { id: 1, name: "Test" };
       const result = success(data);
 
       expect(result.data).toEqual(data);
@@ -18,14 +18,14 @@ describe('response utilities', () => {
     });
   });
 
-  describe('failure', () => {
-    it('should create failure response', () => {
+  describe("failure", () => {
+    it("should create failure response", () => {
       const error = {
-        code: 'AR001001',
-        error: 'network_error',
-        message: 'Network error',
+        code: "AR001001",
+        error: "network_error",
+        message: "Network error",
         retryable: true,
-        severity: 'error' as const,
+        severity: "error" as const,
       };
       const result = failure(error);
 
@@ -34,57 +34,71 @@ describe('response utilities', () => {
     });
   });
 
-  describe('failureFromParams', () => {
-    it('should create failure response from params', () => {
+  describe("failureFromParams", () => {
+    it("should create failure response from params", () => {
       const result = failureFromParams({
-        code: 'AR001001',
-        error: 'network_error',
-        message: 'Network error',
+        code: "AR001001",
+        error: "network_error",
+        message: "Network error",
         retryable: true,
-        severity: 'error',
+        severity: "error",
       });
 
       expect(result.data).toBeNull();
-      expect(result.error?.code).toBe('AR001001');
-      expect(result.error?.message).toBe('Network error');
+      expect(result.error?.code).toBe("AR001001");
+      expect(result.error?.message).toBe("Network error");
     });
   });
 
-  describe('toAuthError', () => {
-    it('should convert DirectAuthError', () => {
+  describe("toAuthError", () => {
+    it("should convert DirectAuthError", () => {
       const directAuthError = {
-        code: 'AR003001',
-        error: 'passkey_not_found',
-        error_description: 'No passkey found',
+        code: "AR003001",
+        error: "passkey_no_credential",
+        error_description: "No passkey found",
         meta: {
           retryable: false,
-          severity: 'warn' as const,
+          severity: "warn" as const,
         },
       };
 
       const authError = toAuthError(directAuthError);
 
-      expect(authError.code).toBe('AR003001');
-      expect(authError.error).toBe('passkey_not_found');
-      expect(authError.message).toBe('No passkey found');
+      expect(authError.code).toBe("AR003001");
+      expect(authError.error).toBe("passkey_no_credential");
+      expect(authError.message).toBe("No passkey found");
       expect(authError.retryable).toBe(false);
-      expect(authError.severity).toBe('warn');
+      expect(authError.severity).toBe("warn");
+    });
+
+    it("should normalize removed passkey errors", () => {
+      const authError = toAuthError({
+        code: "AR003001",
+        error: "passkey_not_found",
+        error_description: "No passkey found",
+        meta: {
+          retryable: false,
+          severity: "warn" as const,
+        },
+      });
+
+      expect(authError.error).toBe("passkey_no_credential");
     });
   });
 
-  describe('authResultToResponse', () => {
-    it('should convert successful AuthResult', () => {
+  describe("authResultToResponse", () => {
+    it("should convert successful AuthResult", () => {
       const result = {
         success: true,
         session: {
-          id: 'session-1',
-          userId: 'user-1',
+          id: "session-1",
+          userId: "user-1",
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 3600000).toISOString(),
         },
         user: {
-          id: 'user-1',
-          email: 'test@example.com',
+          id: "user-1",
+          email: "test@example.com",
         },
       };
 
@@ -96,16 +110,16 @@ describe('response utilities', () => {
       expect(response.error).toBeNull();
     });
 
-    it('should convert failed AuthResult', () => {
+    it("should convert failed AuthResult", () => {
       const result = {
         success: false,
         error: {
-          code: 'AR003001',
-          error: 'passkey_not_found',
-          error_description: 'No passkey found',
+          code: "AR003001",
+          error: "passkey_no_credential",
+          error_description: "No passkey found",
           meta: {
             retryable: false,
-            severity: 'warn' as const,
+            severity: "warn" as const,
           },
         },
       };
@@ -114,7 +128,7 @@ describe('response utilities', () => {
 
       expect(response.data).toBeNull();
       expect(response.error).toBeDefined();
-      expect(response.error?.code).toBe('AR003001');
+      expect(response.error?.code).toBe("AR003001");
     });
   });
 });

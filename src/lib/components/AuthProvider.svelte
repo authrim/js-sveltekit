@@ -33,14 +33,16 @@
 
   // Optionally validate session in the background after hydration
   onMount(() => {
+    if (!auth._shouldFetchSessionOnMount()) {
+      return;
+    }
+
     if (initialSession && initialUser) {
-      // Session already synced above, optionally revalidate in background
-      // This ensures the session is still valid on the server
+      // Session already synced above; browser mode may revalidate in background.
       auth.session.get().catch((error) => {
         console.warn('[Authrim] Failed to revalidate session:', error);
       });
     } else if (!initialSession && !initialUser) {
-      // No SSR session provided, check if there's a session in storage
       auth.session.get().catch((error) => {
         console.warn('[Authrim] Failed to fetch session:', error);
       });

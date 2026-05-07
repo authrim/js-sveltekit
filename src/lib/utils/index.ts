@@ -2,15 +2,19 @@ export {
   sanitizeForLogging,
   sanitizeJsonForLogging,
   maskValue,
-} from './sensitive-data.js';
-export { getAuthrimCode, mapSeverity, ERROR_CODE_MAP } from './error-mapping.js';
-export { fetchClientConfig, type PublicClientConfig } from './client-config.js';
+} from "./sensitive-data.js";
+export {
+  getAuthrimCode,
+  mapSeverity,
+  ERROR_CODE_MAP,
+} from "./error-mapping.js";
+export { fetchClientConfig, type PublicClientConfig } from "./client-config.js";
 export {
   convertToPublicKeyCredentialRequestOptions,
   convertToPublicKeyCredentialCreationOptions,
   assertionResponseToJSON,
   attestationResponseToJSON,
-} from './webauthn-converters.js';
+} from "./webauthn-converters.js";
 export {
   success,
   failure,
@@ -18,8 +22,13 @@ export {
   toAuthError,
   authResultToResponse,
   wrapWithAuthResponse,
-} from './response.js';
-export { AUTH_CONTEXT_KEY, setAuthContext, getAuthContext, hasAuthContext } from './context.js';
+} from "./response.js";
+export {
+  AUTH_CONTEXT_KEY,
+  setAuthContext,
+  getAuthContext,
+  hasAuthContext,
+} from "./context.js";
 export {
   isBrowser,
   isServer,
@@ -29,4 +38,4 @@ export {
   getDocument,
   getLocalStorage,
   getSessionStorage,
-} from './ssr.js';
+} from "./ssr.js";

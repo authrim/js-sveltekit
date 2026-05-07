@@ -48,17 +48,28 @@
 
 /* === Animations === */
 @keyframes authrim-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes authrim-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 @keyframes authrim-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes authrim-fade-up {
@@ -95,9 +106,23 @@
 }
 
 @keyframes authrim-shake {
-  0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
-  20%, 40%, 60%, 80% { transform: translateX(4px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-4px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(4px);
+  }
 }
 
 @keyframes authrim-slide-in-right {
@@ -112,12 +137,18 @@
 }
 
 @keyframes authrim-bounce-subtle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
 }
 
 @keyframes authrim-glow-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 0 var(--authrim-color-primary-subtle);
   }
   50% {
@@ -126,9 +157,15 @@
 }
 
 @keyframes authrim-digit-pop {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.1); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* === Animation Utilities === */
@@ -141,15 +178,18 @@
 }
 
 .authrim-animate-fade-in {
-  animation: authrim-fade-in var(--authrim-duration-normal) var(--authrim-ease-out);
+  animation: authrim-fade-in var(--authrim-duration-normal)
+    var(--authrim-ease-out);
 }
 
 .authrim-animate-fade-up {
-  animation: authrim-fade-up var(--authrim-duration-normal) var(--authrim-ease-out);
+  animation: authrim-fade-up var(--authrim-duration-normal)
+    var(--authrim-ease-out);
 }
 
 .authrim-animate-scale-in {
-  animation: authrim-scale-in var(--authrim-duration-normal) var(--authrim-ease-bounce);
+  animation: authrim-scale-in var(--authrim-duration-normal)
+    var(--authrim-ease-bounce);
 }
 
 .authrim-animate-shake {
