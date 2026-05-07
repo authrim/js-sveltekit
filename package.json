@@ -1,7 +1,7 @@
 {
   "name": "@authrim/sveltekit",
   "packageManager": "pnpm@9.15.0",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "SvelteKit SDK for Authrim authentication",
   "type": "module",
   "svelte": "./dist/index.js",
@@ -86,12 +86,12 @@
     "url": "https://github.com/authrim/js-sveltekit/issues"
   },
   "peerDependencies": {
-    "@authrim/core": ">=0.1.14",
+    "@authrim/core": ">=0.1.16",
     "svelte": "^4.0.0 || ^5.0.0",
     "@sveltejs/kit": "^2.0.0"
   },
   "devDependencies": {
-    "@authrim/core": "^0.1.14",
+    "@authrim/core": "^0.1.16",
     "@sveltejs/adapter-auto": "^3.0.0",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/package": "^2.0.0",
