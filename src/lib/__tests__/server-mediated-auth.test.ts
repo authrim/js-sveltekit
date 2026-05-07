@@ -263,7 +263,11 @@ describe("createServerSessionManager", () => {
     } as unknown as RequestEvent;
     await sessionManager.set(writeEvent, { session, user });
 
-    const tamperedCookie = `${cookieValue.slice(0, -1)}x`;
+    const [version, encodedIv, encodedCiphertext] = cookieValue.split(".");
+    const tamperedCiphertext = `${
+      encodedCiphertext[0] === "A" ? "B" : "A"
+    }${encodedCiphertext.slice(1)}`;
+    const tamperedCookie = `${version}.${encodedIv}.${tamperedCiphertext}`;
     const readEvent = {
       cookies: {
         get: vi.fn(() => tamperedCookie),
