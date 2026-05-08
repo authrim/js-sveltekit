@@ -20,6 +20,7 @@ export type {
   StorageOptions,
   StorageType,
   SvelteKitAuthMode,
+  AuthrimWebSdkProfile,
   ServerMediatedSessionOptions,
   // Client
   AuthrimClient,

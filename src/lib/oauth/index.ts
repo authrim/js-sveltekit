@@ -6,7 +6,12 @@
 
 import type { AuthrimClient as CoreClient } from "@authrim/core";
 import { stringToBase64url, base64urlToString } from "@authrim/core";
-import type { TrySilentLoginOptions, SilentLoginResult } from "../types.js";
+import type {
+  OAuthBuildAuthorizationUrlOptions,
+  OAuthAuthorizationUrlResult,
+  TrySilentLoginOptions,
+  SilentLoginResult,
+} from "../types.js";
 
 /**
  * Silent login state data (compact keys to reduce URL length)
@@ -32,6 +37,26 @@ export function createOAuthNamespace(
   },
 ) {
   return {
+    async buildAuthorizationUrl(
+      options: OAuthBuildAuthorizationUrlOptions,
+    ): Promise<OAuthAuthorizationUrlResult> {
+      const result = await coreClient.buildAuthorizationUrl({
+        redirectUri: options.redirectUri,
+        scope: options.scopes?.join(" "),
+        prompt: options.prompt,
+        loginHint: options.loginHint,
+        maxAge: options.maxAge,
+        acrValues: options.acrValues,
+        exposeState: true,
+      });
+
+      return {
+        url: result.url,
+        state: result.state,
+        nonce: result.nonce,
+      };
+    },
+
     /**
      * Try silent SSO via top-level navigation (prompt=none)
      *
@@ -194,7 +219,10 @@ export function createOAuthNamespace(
       if (code) {
         if (config.browserTokenPathEnabled === false) {
           const returnUrl = new URL(returnTo);
-          returnUrl.searchParams.set("sso_error", "server_mediated_auth_required");
+          returnUrl.searchParams.set(
+            "sso_error",
+            "server_mediated_auth_required",
+          );
           returnUrl.searchParams.set(
             "sso_error_description",
             "Browser-held OAuth callback is disabled; handle the callback on the SvelteKit server or set authMode='browser'.",

@@ -16,6 +16,7 @@ import type {
 import {
   AuthrimError,
   CustomerProfileClient,
+  DPoPManager,
   DeviceInventoryClient,
   StepUpClient,
   createAuthrimClient,
@@ -42,9 +43,10 @@ import type {
   SignOutOptions,
   AuthResponse,
   AuthSessionData,
-  AuthStores,
-  SvelteKitAuthMode,
-} from "./types.js";
+	  AuthStores,
+	  SvelteKitAuthMode,
+	  AuthrimFetchOptions,
+	} from "./types.js";
 
 import {
   authResultToResponse,
@@ -145,6 +147,8 @@ export async function createAuthrim(
     issuer: config.issuer,
     clientId: config.clientId,
   });
+  const dpopManager = new DPoPManager(crypto, { algorithm: "ES256" });
+  const useDPoPTokenRequests = shouldUseDPoPTokenRequests(config);
   const storageOptions: BrowserStorageOptions = config.storage ?? {};
   const storage = createBrowserStorage(storageOptions);
 
@@ -208,7 +212,7 @@ export async function createAuthrim(
       crypto,
       storage,
       dpop: {
-        tokenRequests: shouldUseDPoPTokenRequests(config),
+        tokenRequests: useDPoPTokenRequests,
         algorithm: "ES256",
       },
     });
@@ -220,7 +224,7 @@ export async function createAuthrim(
         ensureBrowserDPoPPreflight(
           crypto,
           resolveBrowserPublicClientMode(config),
-          shouldUseDPoPTokenRequests(config),
+          useDPoPTokenRequests,
         ),
       browserTokenPathEnabled: authMode === "browser",
     });
@@ -233,6 +237,22 @@ export async function createAuthrim(
     http,
     mode: authMode,
     serverSession,
+    tokenRequestDPoP: useDPoPTokenRequests
+      ? {
+          required: true,
+          async generateProof(nonce?: string) {
+            await dpopManager.initialize();
+            return dpopManager.generateProof(
+              "POST",
+              `${config.issuer.replace(/\/$/, "")}/token`,
+              { nonce },
+            );
+          },
+          handleNonce(nonce: string) {
+            dpopManager.handleNonceResponse(nonce);
+          },
+        }
+      : undefined,
   });
   const devices: DevicesNamespace = {
     list: (options) =>
@@ -266,7 +286,7 @@ export async function createAuthrim(
     return sessionManager.exchangeToken(
       authCode,
       codeVerifier,
-      undefined,
+      config.browserRefreshTokenPolicy === "dpop_bound",
       providerId,
     );
   };
@@ -603,6 +623,52 @@ export async function createAuthrim(
     emitter.emit("auth:logout", { redirectUri: options?.redirectUri });
   }
 
+  async function authFetch(
+    input: RequestInfo | URL,
+    init: AuthrimFetchOptions = {},
+  ): Promise<Response> {
+    const requestProfile = init.profile ?? (authMode === "browser" ? "token" : "cookie");
+    const { profile: _profile, accessToken, csrfToken, ...requestInit } = init;
+
+    if (requestProfile === "cookie") {
+      return globalThis.fetch(input, {
+        ...requestInit,
+        headers: withCookieProfileCsrfHeaders(
+          requestInit.headers,
+          requestInit.method,
+          config.csrf,
+          csrfToken,
+        ),
+        credentials: requestInit.credentials ?? serverSession.credentials,
+      });
+    }
+
+    const token = accessToken ?? sessionManager.getToken();
+    if (!token) {
+      throw new AuthrimError(
+        "no_tokens",
+        "authrim.fetch() with profile='token' requires an authenticated session or explicit accessToken",
+      );
+    }
+
+    const response = await fetchWithDPoP(input, requestInit, token, dpopManager);
+    const method = requestInit.method ?? (input instanceof Request ? input.method : "GET");
+    if (
+      response.status !== 401 ||
+      accessToken ||
+      !isReplayAllowed(method, requestInit.headers, input)
+    ) {
+      return response;
+    }
+
+    const refreshedAccessToken = await sessionManager.refreshAccessToken();
+    if (!refreshedAccessToken) {
+      return response;
+    }
+
+    return fetchWithDPoP(input, requestInit, refreshedAccessToken, dpopManager);
+  }
+
   // ==========================================================================
   // Event System
   // ==========================================================================
@@ -680,11 +746,12 @@ export async function createAuthrim(
       social: (provider: SocialProvider, options?: SocialLoginOptions) =>
         social.loginWithPopup(provider, options),
     },
-    signUp: {
-      passkey: (options: PasskeySignUpOptions) => passkey.signUp(options),
-    },
-    signOut,
-    on,
+	    signUp: {
+	      passkey: (options: PasskeySignUpOptions) => passkey.signUp(options),
+	    },
+	    signOut,
+	    fetch: authFetch,
+	    on,
     stores,
     _syncFromSSR,
     _shouldFetchSessionOnMount,
@@ -706,9 +773,196 @@ function resolveDeviceInventoryAccessToken(
   return token;
 }
 
+async function fetchWithDPoP(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  accessToken: string,
+  dpopManager: DPoPManager,
+): Promise<Response> {
+  await dpopManager.initialize();
+  const method = init.method ?? (input instanceof Request ? input.method : "GET");
+
+  const send = async (nonce?: string) => {
+    const uri = toAbsoluteRequestUrl(input);
+    const accessTokenHash = await dpopManager.calculateAccessTokenHash(accessToken);
+    const proof = await dpopManager.generateProof(method, uri, {
+      accessTokenHash,
+      nonce,
+    });
+    const headers = new Headers(
+      init.headers ?? (input instanceof Request ? input.headers : undefined),
+    );
+    headers.set("Authorization", `DPoP ${accessToken}`);
+    headers.set("DPoP", proof);
+
+    return globalThis.fetch(input, {
+      ...init,
+      method,
+      headers,
+    });
+  };
+
+  const response = await send();
+  const nonce = getDPoPNonce(response);
+  if (response.status === 401 && nonce && isReplayAllowed(method, init.headers, input)) {
+    dpopManager.handleNonceResponse(nonce);
+    const retryResponse = await send(nonce);
+    await throwIfDPoPBindingError(retryResponse);
+    return retryResponse;
+  }
+  await throwIfDPoPBindingError(response);
+  return response;
+}
+
+async function throwIfDPoPBindingError(response: Response): Promise<void> {
+  if (response.status < 400) {
+    return;
+  }
+
+  const error = await readOAuthErrorResponse(response);
+  if (!error || !isDPoPBindingError(error.error)) {
+    return;
+  }
+
+  throw new AuthrimError(error.error, error.error_description ?? error.error, {
+    errorUri: error.error_uri,
+    details: {
+      originalError: error.error,
+    },
+  });
+}
+
+async function readOAuthErrorResponse(response: Response): Promise<{
+  error: string;
+  error_description?: string;
+  error_uri?: string;
+} | null> {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return null;
+  }
+
+  try {
+    const payload = (await response.clone().json()) as {
+      error?: unknown;
+      error_description?: unknown;
+      error_uri?: unknown;
+    };
+    if (typeof payload.error !== "string") {
+      return null;
+    }
+    return {
+      error: payload.error,
+      error_description:
+        typeof payload.error_description === "string" ? payload.error_description : undefined,
+      error_uri: typeof payload.error_uri === "string" ? payload.error_uri : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isDPoPBindingError(error: string): error is
+  | "dpop_nonce_required"
+  | "dpop_replay_rejected"
+  | "token_binding_failed" {
+  return (
+    error === "dpop_nonce_required" ||
+    error === "dpop_replay_rejected" ||
+    error === "token_binding_failed"
+  );
+}
+
+function isReplayAllowed(
+  method: string,
+  headers: HeadersInit | undefined,
+  input: RequestInfo | URL,
+): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) {
+    return true;
+  }
+
+  const replayHeaders = new Headers(
+    headers ?? (input instanceof Request ? input.headers : undefined),
+  );
+  return replayHeaders.has("Idempotency-Key");
+}
+
+function getDPoPNonce(response: Response): string | null {
+  const nonce = response.headers.get("DPoP-Nonce");
+  if (nonce) {
+    return nonce;
+  }
+
+  const challenge = response.headers.get("WWW-Authenticate");
+  if (!challenge?.includes("use_dpop_nonce")) {
+    return null;
+  }
+  const match = /dpop_nonce="([^"]+)"/i.exec(challenge);
+  return match?.[1] ?? null;
+}
+
+function toAbsoluteRequestUrl(input: RequestInfo | URL): string {
+  const value =
+    typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  try {
+    return new URL(value, globalThis.location?.href).toString();
+  } catch {
+    return value;
+  }
+}
+
+function isStateChangingMethod(method?: string): boolean {
+  const normalized = (method ?? "GET").toUpperCase();
+  return !["GET", "HEAD", "OPTIONS", "TRACE"].includes(normalized);
+}
+
+function readCookieValue(name: string): string | null {
+  if (typeof document === "undefined" || typeof document.cookie !== "string") {
+    return null;
+  }
+
+  const prefix = `${encodeURIComponent(name)}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+
+  return null;
+}
+
+function withCookieProfileCsrfHeaders(
+  headers: HeadersInit | undefined,
+  method: string | undefined,
+  csrfConfig: AuthrimConfig["csrf"] | undefined,
+  csrfToken: string | false | undefined,
+): HeadersInit | undefined {
+  if (!isStateChangingMethod(method) || csrfToken === false) {
+    return headers;
+  }
+
+  const token = csrfToken ?? readCookieValue(csrfConfig?.cookieName ?? "authrim_csrf");
+  if (!token) {
+    return headers;
+  }
+
+  const nextHeaders = new Headers(headers);
+  nextHeaders.set(csrfConfig?.headerName ?? "X-Authrim-CSRF", token);
+  return nextHeaders;
+}
+
 type BrowserPublicClientMode = NonNullable<AuthrimConfig["browserPublicClientMode"]>;
 
 function resolveAuthMode(config: AuthrimConfig): SvelteKitAuthMode {
+  if (config.profile === "cookie" || config.profile === "auto") {
+    return "server";
+  }
+  if (config.profile === "token") {
+    return "browser";
+  }
   return config.authMode ?? "server";
 }
 
