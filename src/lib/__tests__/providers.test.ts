@@ -141,6 +141,31 @@ describe("BrowserCryptoProvider", () => {
     expect(keyPair?.publicKeyJwk.d).toBeUndefined();
   });
 
+  it("should isolate DPoP keys by full issuer and tenant id", async () => {
+    const indexedDB = createFakeIndexedDB();
+    const tenantA = new BrowserCryptoProvider({
+      issuer: "https://auth.example.com/tenant-a",
+      clientId: "client-a",
+      tenantId: "tenant-a",
+      crypto: webcrypto as unknown as Crypto,
+      indexedDB,
+    });
+    const tenantB = new BrowserCryptoProvider({
+      issuer: "https://auth.example.com/tenant-b",
+      clientId: "client-a",
+      tenantId: "tenant-b",
+      crypto: webcrypto as unknown as Crypto,
+      indexedDB,
+    });
+
+    const keyA = await tenantA.generateDPoPKeyPair();
+    const keyB = await tenantB.generateDPoPKeyPair();
+
+    expect(keyA.thumbprint).not.toBe(keyB.thumbprint);
+    expect((await tenantA.getDPoPKeyPair())?.thumbprint).toBe(keyA.thumbprint);
+    expect((await tenantB.getDPoPKeyPair())?.thumbprint).toBe(keyB.thumbprint);
+  });
+
   it("should report unavailable IndexedDB in browser DPoP preflight", async () => {
     const provider = new BrowserCryptoProvider({
       crypto: webcrypto as unknown as Crypto,

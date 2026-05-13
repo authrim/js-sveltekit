@@ -146,6 +146,7 @@ export async function createAuthrim(
   const crypto = new BrowserCryptoProvider({
     issuer: config.issuer,
     clientId: config.clientId,
+    tenantId: config.tenantId,
   });
   const dpopManager = new DPoPManager(crypto, { algorithm: "ES256" });
   const useDPoPTokenRequests = shouldUseDPoPTokenRequests(config);

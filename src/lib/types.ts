@@ -91,6 +91,8 @@ export interface ServerMediatedSessionOptions {
 export interface AuthrimConfig {
   issuer: string;
   clientId: string;
+  /** Tenant id used to scope browser DPoP key material when known. */
+  tenantId?: string;
   /**
    * SvelteKit token handling mode.
    *
