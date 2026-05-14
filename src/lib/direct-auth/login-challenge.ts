@@ -5,7 +5,11 @@
  * This is a thin API wrapper — no business logic, just HTTP calls.
  */
 
-import type { HttpClient, HttpOptions } from "@authrim/core";
+import type {
+  AuthrimLoginChallengeRuntimeMetadata,
+  HttpClient,
+  HttpOptions,
+} from "@authrim/core";
 
 /** Extended HTTP options with browser-specific fields */
 interface FetchOptions extends HttpOptions {
@@ -28,7 +32,7 @@ export interface LoginChallengeClientInfo {
   response_type: string;
 }
 
-export interface LoginChallengeData {
+export interface LoginChallengeData extends Partial<AuthrimLoginChallengeRuntimeMetadata> {
   challenge_id: string;
   client: LoginChallengeClientInfo;
   requested_scopes: string[];

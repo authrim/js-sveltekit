@@ -33,6 +33,12 @@ export interface SessionManagerOptions {
     logoutEndpoint: string;
     credentials: RequestCredentials;
   };
+  /** Optional DPoP proof provider for browser token endpoint requests. */
+  tokenRequestDPoP?: {
+    required: boolean;
+    generateProof(nonce?: string): Promise<string>;
+    handleNonce?(nonce: string): void;
+  };
 }
 
 export class SessionAuthImpl implements SessionAuth {
@@ -41,7 +47,9 @@ export class SessionAuthImpl implements SessionAuth {
   private readonly http: BrowserHttpClient;
   private readonly mode: "server" | "browser";
   private readonly serverSession?: NonNullable<SessionManagerOptions["serverSession"]>;
+  private readonly tokenRequestDPoP?: SessionManagerOptions["tokenRequestDPoP"];
   private memoryToken: string | null = null;
+  private memoryRefreshToken: string | null = null;
   private cachedSession: Session | null = null;
   private cachedUser: User | null = null;
   private sessionCacheExpiry: number = 0;
@@ -53,6 +61,7 @@ export class SessionAuthImpl implements SessionAuth {
     this.http = options.http;
     this.mode = options.mode;
     this.serverSession = options.serverSession;
+    this.tokenRequestDPoP = options.tokenRequestDPoP;
   }
 
   private getStoredToken(): string | null {
@@ -63,8 +72,22 @@ export class SessionAuthImpl implements SessionAuth {
     this.memoryToken = token;
   }
 
+  private storeRefreshToken(token: string): void {
+    this.memoryRefreshToken = token;
+  }
+
+  private storeTokenResponse(tokenResponse: DirectAuthTokenResponsePhase1): void {
+    if (tokenResponse.access_token) {
+      this.storeToken(tokenResponse.access_token);
+    }
+    if (tokenResponse.refresh_token) {
+      this.storeRefreshToken(tokenResponse.refresh_token);
+    }
+  }
+
   private removeStoredToken(): void {
     this.memoryToken = null;
+    this.memoryRefreshToken = null;
   }
 
   async get(): Promise<Session | null> {
@@ -217,14 +240,39 @@ export class SessionAuthImpl implements SessionAuth {
       body.set("resource", this.clientId);
     }
 
-    const response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
-      `${this.issuer}${ENDPOINTS.TOKEN}`,
+    let response;
+    const tokenEndpoint = `${this.issuer}${ENDPOINTS.TOKEN}`;
+    const createHeaders = async (nonce?: string) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      };
+      if (this.tokenRequestDPoP?.required) {
+        headers.DPoP = await this.tokenRequestDPoP.generateProof(nonce);
+      }
+      return headers;
+    };
+
+    response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
+      tokenEndpoint,
       {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: await createHeaders(),
         body: body.toString(),
       },
     );
+
+    const nonce = getHeaderValue(response.headers, "dpop-nonce");
+    if (!response.ok && nonce && this.tokenRequestDPoP?.required) {
+      this.tokenRequestDPoP.handleNonce?.(nonce);
+      response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
+        tokenEndpoint,
+        {
+          method: "POST",
+          headers: await createHeaders(nonce),
+          body: body.toString(),
+        },
+      );
+    }
 
     if (!response.ok || !response.data) {
       if (response.status === 400) {
@@ -256,13 +304,90 @@ export class SessionAuthImpl implements SessionAuth {
 
     const tokenResponse = response.data;
 
-    if (tokenResponse.access_token) {
-      this.storeToken(tokenResponse.access_token);
-    }
+    this.storeTokenResponse(tokenResponse);
 
     return {
       tokens: tokenResponse,
     };
+  }
+
+  async refreshAccessToken(): Promise<string | null> {
+    if (this.mode !== "browser" || !this.memoryRefreshToken) {
+      return null;
+    }
+
+    const body = new URLSearchParams();
+    body.set("grant_type", "refresh_token");
+    body.set("client_id", this.clientId);
+    body.set("refresh_token", this.memoryRefreshToken);
+
+    const tokenEndpoint = `${this.issuer}${ENDPOINTS.TOKEN}`;
+    const createHeaders = async (nonce?: string) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      };
+      if (this.tokenRequestDPoP?.required) {
+        headers.DPoP = await this.tokenRequestDPoP.generateProof(nonce);
+      }
+      return headers;
+    };
+
+    let response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
+      tokenEndpoint,
+      {
+        method: "POST",
+        headers: await createHeaders(),
+        body: body.toString(),
+      },
+    );
+
+    const nonce = getHeaderValue(response.headers, "dpop-nonce");
+    if (!response.ok && nonce && this.tokenRequestDPoP?.required) {
+      this.tokenRequestDPoP.handleNonce?.(nonce);
+      response = await this.http.fetch<DirectAuthTokenResponsePhase1>(
+        tokenEndpoint,
+        {
+          method: "POST",
+          headers: await createHeaders(nonce),
+          body: body.toString(),
+        },
+      );
+    }
+
+    if (!response.ok || !response.data?.access_token) {
+      const errorData = response.data as unknown as {
+        error?: string;
+        error_description?: string;
+        error_uri?: string;
+      };
+      if (errorData?.error === "refresh_token_reuse_detected") {
+        this.removeStoredToken();
+        throw new AuthrimError(
+          "refresh_token_reuse_detected",
+          errorData.error_description || "Refresh token reuse detected",
+          {
+            errorUri: errorData.error_uri,
+          },
+        );
+      }
+
+      const refreshErrorCode =
+        errorData?.error === "invalid_grant" ? "invalid_grant" : "refresh_error";
+      throw new AuthrimError(
+        refreshErrorCode,
+        errorData?.error_description || "Failed to refresh access token",
+        {
+          errorUri: errorData?.error_uri,
+          details: {
+            originalError: errorData?.error,
+          },
+        },
+      );
+    }
+
+    this.storeTokenResponse(response.data);
+    this.clearCache();
+    return response.data.access_token;
   }
 
   /**
@@ -404,4 +529,20 @@ export class SessionAuthImpl implements SessionAuth {
       user: response.data.user,
     };
   }
+}
+
+function getHeaderValue(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === target) {
+      return value;
+    }
+  }
+  return undefined;
 }

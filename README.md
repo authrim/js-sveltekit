@@ -21,7 +21,7 @@ Official SvelteKit SDK for [Authrim](https://authrim.com) authentication.
 - Node.js >= 18
 - SvelteKit >= 2.0
 - Svelte >= 4.0 or >= 5.0
-- @authrim/core >= 0.1.10
+- @authrim/core >= 0.1.17
 
 ## Installation
 
@@ -205,6 +205,7 @@ const auth = await createAuthrim({
 
 The default `authMode` is `'server'`. Set `authMode: 'browser'` only when this
 SvelteKit app intentionally uses browser-held OAuth/OIDC tokens.
+Browser mode requires a strict public-client profile with DPoP-bound token requests.
 
 ```typescript
 const auth = await createAuthrim({
@@ -212,6 +213,7 @@ const auth = await createAuthrim({
   clientId: 'your-client-id',
   authMode: 'browser',
   browserPublicClientMode: 'strict',
+  browserRefreshTokenPolicy: 'dpop_bound',
 });
 ```
 

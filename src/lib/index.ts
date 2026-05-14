@@ -20,6 +20,7 @@ export type {
   StorageOptions,
   StorageType,
   SvelteKitAuthMode,
+  AuthrimWebSdkProfile,
   ServerMediatedSessionOptions,
   // Client
   AuthrimClient,
@@ -110,6 +111,16 @@ export {
   createBrowserStorage,
   type BrowserStorageOptions,
 } from "./providers/storage.js";
+
+export {
+  TenantDiscoveryClient,
+  buildDiscoveryRequest,
+  type DiscoveredTenant,
+  type TenantDiscoveryClientOptions,
+  type TenantDiscoveryInput,
+  type TenantDiscoveryMode,
+  type TenantDiscoveryResult,
+} from "./tenant-discovery.js";
 
 // Flow API types (re-export for convenience)
 export type {

@@ -33,12 +33,15 @@ import type {
   RenameDeviceResponse,
   UnlinkDeviceOptions,
   UnlinkDeviceResponse,
+  AuthrimWebSdkProfile,
 } from "@authrim/core";
 import type { DirectAuthTokenResponsePhase1 } from "./direct-auth/protocol.js";
 import type {
   AuthLoadingState,
   AuthError as StoreAuthError,
 } from "./stores/auth.js";
+
+export type { AuthrimWebSdkProfile } from "@authrim/core";
 
 // =============================================================================
 // Configuration Types
@@ -88,6 +91,8 @@ export interface ServerMediatedSessionOptions {
 export interface AuthrimConfig {
   issuer: string;
   clientId: string;
+  /** Tenant id used to scope browser DPoP key material when known. */
+  tenantId?: string;
   /**
    * SvelteKit token handling mode.
    *
@@ -96,6 +101,25 @@ export interface AuthrimConfig {
    * Set 'browser' explicitly to use browser-held OAuth/OIDC tokens.
    */
   authMode?: SvelteKitAuthMode;
+  /**
+   * Framework-level session profile.
+   *
+   * 'auto' resolves to SvelteKit server-mediated cookie sessions. Use 'token'
+   * only for explicit browser-held OAuth/OIDC token mode.
+   */
+  profile?: AuthrimWebSdkProfile;
+  /**
+   * Cookie profile CSRF integration.
+   *
+   * The SDK copies the double-submit cookie value into a header for
+   * state-changing requests. Server adapters must issue and verify the token.
+   */
+  csrf?: {
+    /** Default: 'authrim_csrf' */
+    cookieName?: string;
+    /** Default: 'X-Authrim-CSRF' */
+    headerName?: string;
+  };
   /** Server-mediated cookie session endpoints used when authMode is 'server'. */
   serverSession?: ServerMediatedSessionOptions;
   storage?: StorageOptions;
@@ -235,6 +259,15 @@ export interface SessionNamespace {
 
 export interface SignOutOptions extends DirectAuthLogoutOptions {}
 
+export interface AuthrimFetchOptions extends RequestInit {
+  /** Override the configured profile for this request. */
+  profile?: Exclude<AuthrimWebSdkProfile, "auto">;
+  /** Explicit access token for token profile requests. Defaults to the SDK session token. */
+  accessToken?: string;
+  /** Override cookie profile CSRF token. Set false to suppress automatic CSRF header attachment. */
+  csrfToken?: string | false;
+}
+
 // =============================================================================
 // Flow Namespace Types (Consent, Device Flow, CIBA, Login Challenge)
 // =============================================================================
@@ -313,7 +346,29 @@ export type SilentLoginResult =
   | { status: "login_required" }
   | { status: "error"; error: string; errorDescription?: string };
 
+export interface OAuthBuildAuthorizationUrlOptions {
+  redirectUri: string;
+  scopes?: string[];
+  prompt?: "none" | "login" | "consent" | "select_account";
+  loginHint?: string;
+  maxAge?: number;
+  acrValues?: string;
+}
+
+export interface OAuthAuthorizationUrlResult {
+  url: string;
+  state?: string;
+  nonce?: string;
+}
+
 export interface OAuthNamespace {
+  /**
+   * Build an OAuth/OIDC authorization URL using core SDK validation and state handling.
+   */
+  buildAuthorizationUrl(
+    options: OAuthBuildAuthorizationUrlOptions,
+  ): Promise<OAuthAuthorizationUrlResult>;
+
   /**
    * Try silent SSO via top-level navigation (prompt=none)
    *
@@ -402,6 +457,12 @@ export interface AuthrimClient {
   signUp: SignUpShortcuts;
 
   signOut(options?: SignOutOptions): Promise<void>;
+
+  /** Profile-aware fetch helper for cookie-session and token-session API calls. */
+  fetch(
+    input: RequestInfo | URL,
+    init?: AuthrimFetchOptions,
+  ): Promise<Response>;
 
   on<E extends AuthEventName>(
     event: E,
