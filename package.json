@@ -86,12 +86,12 @@
     "url": "https://github.com/authrim/js-sveltekit/issues"
   },
   "peerDependencies": {
-    "@authrim/core": ">=0.1.16",
+    "@authrim/core": ">=0.1.18",
     "svelte": "^4.0.0 || ^5.0.0",
     "@sveltejs/kit": "^2.0.0"
   },
   "devDependencies": {
-    "@authrim/core": "^0.1.16",
+    "@authrim/core": "^0.1.18",
     "@sveltejs/adapter-auto": "^3.0.0",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/package": "^2.0.0",
